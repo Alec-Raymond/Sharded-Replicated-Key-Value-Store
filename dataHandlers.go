@@ -2,13 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"maps"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
 )
 
 func (r *Replica) handlePut(c echo.Context) error {
@@ -30,9 +29,7 @@ func (r *Replica) handlePut(c echo.Context) error {
 	// Read client's causal metadata.
 	remoteHost := strings.Split(c.Request().RemoteAddr, ":")[0]
 
-	// log.Println("[DEBUG] Remote host", remoteHost)
-	// log.Println("[DEBUG] Real IP", c.RealIP())
-	// log.Println("[DEBUG] Request details:", spew.Sdump(c.Request().Header))
+	zap.L().Debug("In PUT /kvs/:key", zap.String("remoteHost", remoteHost), zap.String("realIp", c.RealIP()))
 
 	clientClock := GetClientVectorClock(request, remoteHost)
 
@@ -52,16 +49,16 @@ func (r *Replica) handlePut(c echo.Context) error {
 		}
 		maps.Copy(copiedClock.Clocks, clientClock.Clocks)
 		broadcastPayload := Request{
-			StoreValue:  StoreValue{Value: request.Value},
-			Metadata:    copiedClock,
-			IsBroadcast: true,
+			StoreValue:     StoreValue{Value: request.Value},
+			CausalMetadata: copiedClock,
+			IsBroadcast:    true,
 		}
 
 		broadcastPayloadJson, err := json.Marshal(broadcastPayload)
 
 		if err != nil {
-			fmt.Println("failed to marshal broadcast payload (handlePut):", broadcastPayload, "with error", err)
-			os.Exit(1)
+			zap.L().Error("failed to marshal broadcast payload (handlePut):", zap.Any("broadcastPayload", broadcastPayload), zap.Error(err))
+			return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
 		}
 
 		go r.BufferAtSender(&PollRequest{
@@ -78,12 +75,12 @@ func (r *Replica) handlePut(c echo.Context) error {
 	if !ok {
 		r.kv[key] = request.Value
 		// Still need to return the updated causal metadata
-		fmt.Println(key, ":", r.kv[key], "created at", c.RealIP())
+		zap.L().Debug("Created kv", zap.String("key", key), zap.Any("value", r.kv[key]), zap.String("producer IP", c.RealIP()))
 		return c.JSON(http.StatusCreated, Response{Result: "created", CausalMetadata: clientClock})
 	}
 
 	r.kv[key] = request.Value
-	fmt.Println(key, ":", r.kv[key], "replacement at", c.RealIP())
+	zap.L().Debug("Replaced kv", zap.String("key", key), zap.Any("value", r.kv[key]), zap.String("producer IP", c.RealIP()))
 	return c.JSON(http.StatusOK, Response{Result: "replaced", CausalMetadata: clientClock})
 }
 
@@ -115,7 +112,7 @@ func (r *Replica) handleGet(c echo.Context) error {
 
 	r.vc.Accept(&clientClock, true, &r.vcLock)
 
-	fmt.Println("key", key, "value:", val, "got at", c.RealIP())
+	zap.L().Info("In GET /kvs/:key", zap.String("key", key), zap.Any("value", val), zap.String("ip", c.RealIP()))
 
 	return c.JSON(http.StatusOK, GetResponse{
 		Response: Response{
@@ -156,16 +153,16 @@ func (r *Replica) handleDelete(c echo.Context) error {
 		}
 		maps.Copy(copiedClock.Clocks, clientClock.Clocks)
 		broadcastPayload := Request{
-			StoreValue:  StoreValue{Value: request.Value},
-			Metadata:    copiedClock,
-			IsBroadcast: true,
+			StoreValue:     StoreValue{Value: request.Value},
+			CausalMetadata: copiedClock,
+			IsBroadcast:    true,
 		}
 
 		broadcastPayloadJson, err := json.Marshal(broadcastPayload)
 
 		if err != nil {
-			fmt.Println("failed to marshal broadcast payload (handlePut):", broadcastPayload, "with error", err)
-			os.Exit(1)
+			zap.L().Error("failed to marshal broadcast payload (handlePut):", zap.Any("broadcastPayload", broadcastPayload), zap.Error(err))
+			return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
 		}
 
 		go r.BufferAtSender(&PollRequest{
@@ -180,7 +177,7 @@ func (r *Replica) handleDelete(c echo.Context) error {
 
 	delete(r.kv, key)
 
-	fmt.Println("Key", key, "deleted at", c.RealIP())
+	zap.L().Info("In DELETE /kvs/:key", zap.String("key", key), zap.String("ip", c.RealIP()))
 
 	return c.JSON(http.StatusOK, Response{Result: "deleted", CausalMetadata: clientClock})
 }

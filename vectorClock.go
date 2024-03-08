@@ -90,8 +90,8 @@ func GetClientVectorClock(request *Request, clientIP string) VectorClock {
 	// fmt.Println("clientIP in getClientVectorClock:", clientIP)
 	var clientClock VectorClock
 
-	if len(request.Metadata.Clocks) > 0 {
-		clientClock = request.Metadata
+	if len(request.CausalMetadata.Clocks) > 0 {
+		clientClock = request.CausalMetadata
 	} else {
 		clientClock = VectorClock{Clocks: make(map[string]int), Self: clientIP}
 		clientClock.Clocks[clientIP] = 0

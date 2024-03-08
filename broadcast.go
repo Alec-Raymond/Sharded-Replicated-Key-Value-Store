@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 )
 
 type BroadcastRequest struct {
@@ -17,12 +18,10 @@ type BroadcastRequest struct {
 
 // Broadcast sends the requests to all the replicas
 func Broadcast(br *BroadcastRequest) []FailingRequest {
-	//wg := sync.WaitGroup{}
-	log.Println("[INFO] In broadcast")
+	zap.L().Info("In Broadcast", zap.Any("payload", *br))
 	var failingReqs []FailingRequest
 
 	urls := br.Replicas
-	//wg.Add(len(urls))
 	for _, addr := range urls {
 		//defer wg.Done()
 		// Create request
@@ -31,16 +30,13 @@ func Broadcast(br *BroadcastRequest) []FailingRequest {
 		method := br.Method
 
 		url := fmt.Sprintf("http://%s%s", addr, endpoint)
-		log.Println("[INFO] Broadcasting to", url)
+		zap.L().Info("Broadcasting to", zap.String("url", url))
 		// fmt.Printf("Broadcasting to %s, with payload %v\n", url, payload)
 		req, err := http.NewRequest(method, url, bytes.NewReader(payload))
 		if err != nil {
 			log.Println("[ERROR]", err)
 			continue
 		}
-		// ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*300)
-		// defer cancel()
-		// req.WithContext(ctx)
 		req.Header.Set("Content-Type", "application/json")
 		// Perform request
 		client := http.Client{
@@ -52,19 +48,18 @@ func Broadcast(br *BroadcastRequest) []FailingRequest {
 				address: addr,
 				err:     errors.New("failed request"),
 			})
-			log.Printf("[INFO] Done sending request to channel")
+			zap.L().Warn("Request failed to", zap.String("url", url), zap.String("method", method))
 			continue
 
 		}
 		// Retry if status code is 503
 		if res.StatusCode == 503 {
-			log.Printf("[WARN] Broadcasting %s to %s failed...need to retry\n", method, url)
+			zap.L().Info("Response returned 503. Going to retry this", zap.String("url", url), zap.String("method", method))
 			failingReqs = append(failingReqs, FailingRequest{
 				address: addr,
 			})
 			continue
 		}
 	}
-	//wg.Wait()
 	return failingReqs
 }

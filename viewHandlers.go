@@ -5,21 +5,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/labstack/echo/v4"
 )
 
 func sendViewRequest(method string, addr string, send string, path string) (*http.Response, error) {
 	requestURL, err := url.Parse("http://" + addr + "/view" + path)
 	if err != nil {
-		fmt.Println("Error Parsing URL", err)
+		zap.L().Error("Couldn't parse URL", zap.Error(err))
 	}
 
 	payload := map[string]string{
@@ -27,16 +26,16 @@ func sendViewRequest(method string, addr string, send string, path string) (*htt
 	}
 	json, err := json.Marshal(payload)
 	if err != nil {
-		fmt.Println("json err", err)
+		zap.L().Error("Couldn't marshal to JSON", zap.Error(err))
+		return nil, err
 	}
 	req, err := http.NewRequest(method, requestURL.String(), bytes.NewBuffer(json))
 	if err != nil {
-		fmt.Println("req err", err)
+		zap.L().Error("Couldn't construct request", zap.Error(err))
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	fmt.Println(req)
 	resp, err := http.DefaultClient.Do(req)
-	fmt.Println(resp)
 
 	return resp, err
 }
@@ -66,16 +65,16 @@ func (replica *Replica) handleViewPut(c echo.Context) error {
 		"socket-address": socket.Address,
 	}
 
-	payloadJson, err := json.Marshal(payload)
+	broadcastPayload, err := json.Marshal(payload)
 
 	if err != nil {
-		fmt.Println("broadcasting json err", err)
+		zap.L().Error("failed to marshal broadcast payload (handlePut):", zap.Any("broadcastPayload", broadcastPayload), zap.Error(err))
 		return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
 	}
 
 	go replica.BufferAtSender(&PollRequest{
-		Method:      "PUT",
-		Payload:     payloadJson,
+		Method:      http.MethodPut,
+		Payload:     broadcastPayload,
 		Endpoint:    "/view",
 		ExcludeAddr: socket.Address,
 		// Only other replicas will be broadcasted to
@@ -134,10 +133,10 @@ func (replica *Replica) BufferAtSender(pr *PollRequest) error {
 
 	conns := RemoveExcludedAddress(replica.GetOtherViews(), pr.ExcludeAddr)
 	for {
-		fmt.Println("[INFO] Longpolling the following replicas:", conns)
+		zap.L().Info("Longpolling the following replicas", zap.Strings("conns", conns))
 		select {
 		case <-ctx.Done():
-			log.Println("[ERROR] LongPoll timed out")
+			zap.L().Error("LongPoll timed out")
 			return errors.New("timed out")
 		default:
 			failingReqs := Broadcast(&BroadcastRequest{
@@ -147,11 +146,10 @@ func (replica *Replica) BufferAtSender(pr *PollRequest) error {
 			var toRetry []string
 			for _, val := range failingReqs {
 				if val.err == nil {
-					log.Println("[INFO] Retrying")
 					toRetry = append(toRetry, val.address)
 				} else {
 					// Delete the view if it got a non-503 error
-					log.Println("[INFO] Deleting view", val.address)
+					zap.L().Warn("Deleting view", zap.String("address", val.address))
 					sendViewRequest(http.MethodDelete, replica.addr, val.address, "")
 				}
 			}
@@ -165,15 +163,14 @@ func (replica *Replica) BufferAtSender(pr *PollRequest) error {
 }
 
 func (replica *Replica) handleViewDelete(c echo.Context) error {
-	log.Println("[INFO] In /view DELETE, view=", spew.Sdump(replica.View))
+	zap.L().Info("In DELETE /view", zap.Strings("view", replica.View))
 	defer func() {
-		log.Println("[INFO] Exiting /view DELETE, view=", spew.Sdump(replica.View))
-
+		zap.L().Info("Exiting DELETE /view", zap.Strings("view", replica.View))
 	}()
 	var socket SocketAddress
 	err := c.Bind(&socket)
 	if err != nil {
-		log.Println("[ERROR] Couldn't obtain socket address")
+		zap.L().Error("Couldn't obtain socket address")
 		return c.JSON(http.StatusBadRequest, ErrResponse{Error: "Bad Request"})
 	}
 
@@ -182,7 +179,7 @@ func (replica *Replica) handleViewDelete(c echo.Context) error {
 	}
 
 	if replica.addr == socket.Address {
-		log.Println("[ERROR] Can't delete self")
+		zap.L().Error("Can't delete Self")
 		return c.JSON(http.StatusBadRequest, ErrResponse{Error: "Can't Delete Self"})
 	}
 
@@ -200,15 +197,15 @@ func (replica *Replica) handleViewDelete(c echo.Context) error {
 				"socket-address": socket.Address,
 				"is-broadcast":   true,
 			}
-			payloadJson, err := json.Marshal(payload)
+			broadcastPayload, err := json.Marshal(payload)
 
 			if err != nil {
-				fmt.Println("broadcasting json err", err)
+				zap.L().Error("failed to marshal broadcast payload (handlePut):", zap.Any("broadcastPayload", broadcastPayload), zap.Error(err))
 				return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
 			}
 			go replica.BufferAtSender(&PollRequest{
 				Method:      http.MethodDelete,
-				Payload:     payloadJson,
+				Payload:     broadcastPayload,
 				Endpoint:    "/view",
 				ExcludeAddr: socket.Address,
 			})

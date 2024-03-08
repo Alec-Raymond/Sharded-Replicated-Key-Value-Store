@@ -2,9 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -14,20 +12,17 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"go.uber.org/zap"
 )
 
 type StoreValue struct {
 	Value any `json:"value"`
 }
 
-type CausalMetadata struct {
-	Metadata VectorClock `json:"causal-metadata"`
-}
-
 type Request struct {
 	StoreValue
-	Metadata    VectorClock `json:"causal-metadata"`
-	IsBroadcast bool        `json:"is-broadcast,omitempty"`
+	CausalMetadata VectorClock `json:"causal-metadata"`
+	IsBroadcast    bool        `json:"is-broadcast,omitempty"`
 }
 
 type Response struct {
@@ -114,7 +109,7 @@ func NewReplica() *Replica {
 }
 
 func (r *Replica) initReplica() {
-	log.Println("[INFO] Initializing replica at", r.addr)
+	zap.L().Info("Initializing replica", zap.String("addr", r.addr))
 	payload := map[string]string{
 		"socket-address": r.addr,
 	}
@@ -122,9 +117,9 @@ func (r *Replica) initReplica() {
 	payloadJson, err := json.Marshal(payload)
 
 	if err != nil {
-		fmt.Println("server init json err", err)
+		zap.L().Error("server init", zap.Error(err))
 	} else {
-		log.Println("[INFO] Registering new replica with its views", r.View)
+		zap.L().Info("Registering new replica with its views", zap.Strings("views", r.View))
 		Broadcast(&BroadcastRequest{
 			PollRequest: PollRequest{
 				Method:      http.MethodPut,
@@ -136,7 +131,6 @@ func (r *Replica) initReplica() {
 		})
 	}
 	r.ChooseData()
-	spew.Dump(r.kv, r.View)
 }
 
 func (r *Replica) GetOtherViews() []string {
@@ -165,12 +159,16 @@ func (r *Replica) ReplicaStatus(next echo.HandlerFunc) echo.HandlerFunc {
 		}
 		r.vcLock.Lock()
 		defer r.vcLock.Unlock()
-		log.Printf("[INFO] In Status, kv = %s, replicas = %s\n", spew.Sdump(r.kv), spew.Sdump(r.View))
+		zap.L().Info("In Status", zap.String("kv", spew.Sdump(r.kv)), zap.Strings("replicas", r.View))
 		return nil
 	}
 }
 
 func main() {
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	zap.ReplaceGlobals(logger)
+
 	e := echo.New()
 
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{

@@ -12,5 +12,4 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /asgn4
 
 EXPOSE 8090
 
-CMD ["/asgn2"]
-
+CMD ["/asgn4"]
