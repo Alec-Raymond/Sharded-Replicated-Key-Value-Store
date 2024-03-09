@@ -95,6 +95,15 @@ func GetClientVectorClock(request *Request, clientIP string) VectorClock {
 	return clientClock
 }
 
+func CloneVC(src VectorClock) VectorClock {
+	copiedClock := VectorClock{
+		Self:   src.Self,
+		Clocks: make(map[string]int),
+	}
+	maps.Copy(copiedClock.Clocks, src.Clocks)
+	return copiedClock
+}
+
 func getAllClients(clocks ...map[string]int) map[string]struct{} {
 	clients := make(map[string]struct{})
 	for _, clock := range clocks {

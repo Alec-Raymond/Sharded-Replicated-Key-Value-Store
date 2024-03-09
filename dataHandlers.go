@@ -10,6 +10,22 @@ import (
 	"go.uber.org/zap"
 )
 
+type Request struct {
+	StoreValue
+	CausalMetadata VectorClock `json:"causal-metadata"`
+	IsBroadcast    bool        `json:"is-broadcast,omitempty"`
+}
+
+type Response struct {
+	Result         string      `json:"result"`
+	CausalMetadata VectorClock `json:"causal-metadata"`
+}
+
+type GetResponse struct {
+	Response
+	StoreValue
+}
+
 func (r *Replica) handlePut(c echo.Context) error {
 	request := new(Request)
 	key := c.Param("key")
@@ -43,11 +59,7 @@ func (r *Replica) handlePut(c echo.Context) error {
 
 	// Prepare broadcast
 	if !request.IsBroadcast {
-		copiedClock := VectorClock{
-			Self:   clientClock.Self,
-			Clocks: make(map[string]int),
-		}
-		maps.Copy(copiedClock.Clocks, clientClock.Clocks)
+		copiedClock := CloneVC(clientClock)
 		broadcastPayload := Request{
 			StoreValue:     StoreValue{Value: request.Value},
 			CausalMetadata: copiedClock,
@@ -61,16 +73,37 @@ func (r *Replica) handlePut(c echo.Context) error {
 			return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
 		}
 
-		go r.BufferAtSender(&PollRequest{
+		go r.BufferAtSender(&BufferAtSenderRequest{
 			Method:   http.MethodPut,
 			Payload:  broadcastPayloadJson,
 			Endpoint: "/kvs/" + key,
+			Targets:  FilterViews(r.shards[r.shardId], r.addr),
 		})
 	}
 
 	// Update both vector clocks
 	r.vc.Accept(&clientClock, false, &r.vcLock)
 	_, ok := r.kv[key]
+
+	// Broadcast the updated vc to all other replicas outside of the current shard
+	copiedClock := CloneVC(*r.vc)
+	broadcastPayload := CMRequest{
+		CausalMetadata: copiedClock,
+	}
+
+	broadcastPayloadJson, err := json.Marshal(broadcastPayload)
+
+	if err != nil {
+		zap.L().Error("failed to marshal broadcast payload (handlePut):", zap.Any("broadcastPayload", broadcastPayload), zap.Error(err))
+		return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
+	}
+
+	go r.BufferAtSender(&BufferAtSenderRequest{
+		Method:   http.MethodPut,
+		Endpoint: "/cm",
+		Targets:  FilterViews(r.GetOtherViews(), r.shards[r.shardId]...),
+		Payload:  broadcastPayloadJson,
+	})
 
 	if !ok {
 		r.kv[key] = request.Value
@@ -162,7 +195,7 @@ func (r *Replica) handleDelete(c echo.Context) error {
 			return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
 		}
 
-		go r.BufferAtSender(&PollRequest{
+		go r.BufferAtSender(&BufferAtSenderRequest{
 			Method:   http.MethodDelete,
 			Payload:  broadcastPayloadJson,
 			Endpoint: "/kvs/" + key,

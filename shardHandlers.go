@@ -61,12 +61,12 @@ func (replica *Replica) handleShardMemberPut(c echo.Context) error {
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
 		}
-		go replica.BufferAtSender(&PollRequest{
-			Method:      http.MethodPut,
-			Payload:     payloadJson,
-			Endpoint:    "/shard/add-member/" + shardId,
-			ExcludeAddr: replica.addr,
+		go replica.BufferAtSender(&BufferAtSenderRequest{
+			Method:   http.MethodPut,
+			Payload:  payloadJson,
+			Endpoint: "/shard/add-member/" + shardId,
 			// Only other replicas will be broadcasted to
+			Targets: FilterViews(replica.GetOtherViews(), socket.Address),
 		})
 		//TODO: Sync replica data with shard
 

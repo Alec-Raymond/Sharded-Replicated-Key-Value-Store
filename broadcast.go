@@ -11,11 +11,11 @@ import (
 )
 
 type BroadcastRequest struct {
-	PollRequest
+	BufferAtSenderRequest
 	Targets []string
 }
 
-// Broadcast sends the requests to all the nodes in a shard
+// Broadcast sends the requests to all the nodes in br.Targets
 func Broadcast(br *BroadcastRequest) []FailingRequest {
 	zap.L().Info("In Broadcast", zap.Any("payload", *br))
 	var failingReqs []FailingRequest
@@ -59,13 +59,4 @@ func Broadcast(br *BroadcastRequest) []FailingRequest {
 		}
 	}
 	return failingReqs
-}
-
-type BroadcastCMRequest struct {
-	Targets []string
-}
-
-// BroadcastCM broadcasts the updated causal metadata to all the replicas
-func BroadcastCM(br *BroadcastCMRequest) []FailingRequest {
-	return []FailingRequest{}
 }

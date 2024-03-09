@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -16,6 +15,24 @@ import (
 
 	"github.com/labstack/echo/v4"
 )
+
+type FailingRequest struct {
+	address string
+	// err should be non-nil if it is a non-retryable error
+	// such that the replica at `address` should be removed
+	err error
+}
+
+type BufferAtSenderRequest struct {
+	// Method must be either GET, PUT, or DELETE
+	Method  string
+	Payload []byte
+	// Endpoint must start with a /
+	Endpoint string
+
+	// Targets to send the request to
+	Targets []string
+}
 
 func sendViewRequest(method string, addr string, send string, path string) (*http.Response, error) {
 	requestURL, err := url.Parse(fmt.Sprintf("http://%s/view%s", addr, path))
@@ -40,6 +57,17 @@ func sendViewRequest(method string, addr string, send string, path string) (*htt
 	resp, err := http.DefaultClient.Do(req)
 
 	return resp, err
+}
+
+// FilterViews removes `exclude` from the list of `views`
+func FilterViews(views []string, exclude ...string) []string {
+	var newViews []string
+	for _, v := range views {
+		if !slices.Contains(exclude, v) {
+			newViews = append(newViews, v)
+		}
+	}
+	return newViews
 }
 
 func (replica *Replica) handleViewPut(c echo.Context) error {
@@ -72,11 +100,11 @@ func (replica *Replica) handleViewPut(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
 	}
 
-	go replica.BufferAtSender(&PollRequest{
-		Method:      http.MethodPut,
-		Payload:     broadcastPayload,
-		Endpoint:    "/view",
-		ExcludeAddr: socket.Address,
+	go replica.BufferAtSender(&BufferAtSenderRequest{
+		Method:   http.MethodPut,
+		Payload:  broadcastPayload,
+		Endpoint: "/view",
+		Targets:  FilterViews(replica.GetOtherViews(), socket.Address),
 	})
 
 	return c.JSON(http.StatusOK, ResponseNC{Result: "added"})
@@ -89,67 +117,28 @@ func (replica *Replica) handleViewGet(c echo.Context) error {
 	return c.JSON(http.StatusOK, replica.ViewInfo)
 }
 
-type FailingRequest struct {
-	address string
-	// err should be non-nil if it is a non-retryable error
-	// such that the replica at `address` should be removed
-	err error
-}
-
-type PollRequest struct {
-	// Method must be either GET, PUT, or DELETE
-	Method  string
-	Payload []byte
-	// Endpoint must start with a /
-	Endpoint string
-
-	ExcludeAddr string
-}
-
-// RemoveExcludedAddresses removes `exlude` from the list of `views`
-func RemoveExcludedAddress(views []string, exclude ...string) []string {
-	var newViews []string
-	for _, v := range views {
-		if !slices.Contains(exclude, v) {
-			newViews = append(newViews, v)
-		}
-	}
-	return newViews
-}
-
-func (replica *Replica) BufferAtSender(pr *PollRequest) error {
+func (replica *Replica) BufferAtSender(pr *BufferAtSenderRequest) error {
 	switch pr.Method {
-	case http.MethodGet, http.MethodPut, http.MethodDelete:
+	case http.MethodPut, http.MethodDelete:
 		break
 	default:
 		return errors.New(fmt.Sprintf("invalid method %s", pr.Method))
 	}
 
-	var cmReplicas []string
-	conns := RemoveExcludedAddress(replica.GetOtherViews(), pr.ExcludeAddr)
-	if strings.Contains(pr.Endpoint, "/kvs") {
-		conns = replica.shards[replica.shardId]
-		cmReplicas = RemoveExcludedAddress(replica.GetOtherViews(), conns...)
-	}
-
+	conns := pr.Targets
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*15)
 	defer cancel()
 
 	for {
-		zap.L().Info("Longpolling the following replicas", zap.Strings("conns", conns))
+		zap.L().Info("Sending requests to the following replicas", zap.Strings("conns", conns))
 		select {
 		case <-ctx.Done():
-			zap.L().Error("LongPoll timed out")
+			zap.L().Error("BufferAtSender timed out")
 			return errors.New("timed out")
 		default:
 			failingReqs := Broadcast(&BroadcastRequest{
-				Targets:     conns,
-				PollRequest: *pr,
-			})
-			// TODO: how are we going to safely pass the metadata
-			// and how are the target replicas going to accept it?
-			failingCMReqs := BroadcastCM(&BroadcastCMRequest{
-				Targets: cmReplicas,
+				Targets:               conns,
+				BufferAtSenderRequest: *pr,
 			})
 			// Retry the broadcast request
 			var toRetry []string
@@ -162,22 +151,10 @@ func (replica *Replica) BufferAtSender(pr *PollRequest) error {
 					sendViewRequest(http.MethodDelete, replica.addr, val.address, "")
 				}
 			}
-			// Retry the CM Broadcast request
-			var toRetryCM []string
-			for _, val := range failingCMReqs {
-				if val.err == nil {
-					toRetryCM = append(toRetryCM, val.address)
-				} else {
-					// Delete the view if it got a non-503 error
-					zap.L().Warn("Deleting view", zap.String("address", val.address))
-					sendViewRequest(http.MethodDelete, replica.addr, val.address, "")
-				}
-			}
 			if len(toRetry) == 0 {
 				return nil
 			}
 			conns = toRetry
-			cmReplicas = toRetryCM
 			time.Sleep(200 * time.Millisecond)
 		}
 	}
@@ -221,14 +198,14 @@ func (replica *Replica) handleViewDelete(c echo.Context) error {
 			broadcastPayload, err := json.Marshal(payload)
 
 			if err != nil {
-				zap.L().Error("failed to marshal broadcast payload (handlePut):", zap.Any("broadcastPayload", broadcastPayload), zap.Error(err))
+				zap.L().Error("failed to marshal broadcast payload (handleDelete):", zap.Any("broadcastPayload", broadcastPayload), zap.Error(err))
 				return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
 			}
-			go replica.BufferAtSender(&PollRequest{
-				Method:      http.MethodDelete,
-				Payload:     broadcastPayload,
-				Endpoint:    "/view",
-				ExcludeAddr: socket.Address,
+			go replica.BufferAtSender(&BufferAtSenderRequest{
+				Method:   http.MethodDelete,
+				Payload:  broadcastPayload,
+				Endpoint: "/view",
+				Targets:  FilterViews(replica.View, socket.Address),
 			})
 
 		}
