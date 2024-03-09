@@ -62,7 +62,7 @@ func (r *Replica) handlePut(c echo.Context) error {
 		}
 
 		go r.BufferAtSender(&PollRequest{
-			Method:   "PUT",
+			Method:   http.MethodPut,
 			Payload:  broadcastPayloadJson,
 			Endpoint: "/kvs/" + key,
 		})
@@ -91,9 +91,6 @@ func (r *Replica) handleGet(c echo.Context) error {
 	_ = c.Bind(request)
 
 	clientClock := GetClientVectorClock(request, c.Request().RemoteAddr)
-
-	// fmt.Println("Client Vector Clock:", clientClock.Clocks)
-	// fmt.Println("My Vector Clock:", r.vc.Clocks)
 
 	// Check if all causal dependencies are satisfied
 	if !r.vc.IsReadyFor(clientClock, true, &r.vcLock) {
@@ -166,10 +163,9 @@ func (r *Replica) handleDelete(c echo.Context) error {
 		}
 
 		go r.BufferAtSender(&PollRequest{
-			Method:      http.MethodDelete,
-			Payload:     broadcastPayloadJson,
-			Endpoint:    "/kvs/" + key,
-			ExcludeAddr: "",
+			Method:   http.MethodDelete,
+			Payload:  broadcastPayloadJson,
+			Endpoint: "/kvs/" + key,
 		})
 	}
 

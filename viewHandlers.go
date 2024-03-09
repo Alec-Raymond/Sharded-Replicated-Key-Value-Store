@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -16,7 +18,7 @@ import (
 )
 
 func sendViewRequest(method string, addr string, send string, path string) (*http.Response, error) {
-	requestURL, err := url.Parse("http://" + addr + "/view" + path)
+	requestURL, err := url.Parse(fmt.Sprintf("http://%s/view%s", addr, path))
 	if err != nil {
 		zap.L().Error("Couldn't parse URL", zap.Error(err))
 	}
@@ -58,8 +60,6 @@ func (replica *Replica) handleViewPut(c echo.Context) error {
 	}
 
 	replica.View = append(replica.View, socket.Address)
-	// sendRequest(http.MethodGet, serverAddr, socket.Address, "/heartbeat")
-	// TO-DO: Trigger recurring/scheduled heartbeat
 
 	payload := map[string]string{
 		"socket-address": socket.Address,
@@ -68,7 +68,7 @@ func (replica *Replica) handleViewPut(c echo.Context) error {
 	broadcastPayload, err := json.Marshal(payload)
 
 	if err != nil {
-		zap.L().Error("failed to marshal broadcast payload (handlePut):", zap.Any("broadcastPayload", broadcastPayload), zap.Error(err))
+		zap.L().Error("Failed to marshal broadcast payload (handlePut):", zap.Any("broadcastPayload", broadcastPayload), zap.Error(err))
 		return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
 	}
 
@@ -77,7 +77,6 @@ func (replica *Replica) handleViewPut(c echo.Context) error {
 		Payload:     broadcastPayload,
 		Endpoint:    "/view",
 		ExcludeAddr: socket.Address,
-		// Only other replicas will be broadcasted to
 	})
 
 	return c.JSON(http.StatusOK, ResponseNC{Result: "added"})
@@ -104,16 +103,14 @@ type PollRequest struct {
 	// Endpoint must start with a /
 	Endpoint string
 
-	// ExcludeAddr is the endpoint to not broadcast the
-	// address to
 	ExcludeAddr string
 }
 
-// RemoveExcludedAddress removes `exlude` from the list of `views`
-func RemoveExcludedAddress(views []string, exclude string) []string {
+// RemoveExcludedAddresses removes `exlude` from the list of `views`
+func RemoveExcludedAddress(views []string, exclude ...string) []string {
 	var newViews []string
 	for _, v := range views {
-		if v != exclude {
+		if !slices.Contains(exclude, v) {
 			newViews = append(newViews, v)
 		}
 	}
@@ -128,10 +125,16 @@ func (replica *Replica) BufferAtSender(pr *PollRequest) error {
 		return errors.New(fmt.Sprintf("invalid method %s", pr.Method))
 	}
 
+	var cmReplicas []string
+	conns := RemoveExcludedAddress(replica.GetOtherViews(), pr.ExcludeAddr)
+	if strings.Contains(pr.Endpoint, "/kvs") {
+		conns = replica.shards[replica.shardId]
+		cmReplicas = RemoveExcludedAddress(replica.GetOtherViews(), conns...)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*15)
 	defer cancel()
 
-	conns := RemoveExcludedAddress(replica.GetOtherViews(), pr.ExcludeAddr)
 	for {
 		zap.L().Info("Longpolling the following replicas", zap.Strings("conns", conns))
 		select {
@@ -140,9 +143,15 @@ func (replica *Replica) BufferAtSender(pr *PollRequest) error {
 			return errors.New("timed out")
 		default:
 			failingReqs := Broadcast(&BroadcastRequest{
-				Replicas:    conns,
+				Targets:     conns,
 				PollRequest: *pr,
 			})
+			// TODO: how are we going to safely pass the metadata
+			// and how are the target replicas going to accept it?
+			failingCMReqs := BroadcastCM(&BroadcastCMRequest{
+				Targets: cmReplicas,
+			})
+			// Retry the broadcast request
 			var toRetry []string
 			for _, val := range failingReqs {
 				if val.err == nil {
@@ -153,10 +162,22 @@ func (replica *Replica) BufferAtSender(pr *PollRequest) error {
 					sendViewRequest(http.MethodDelete, replica.addr, val.address, "")
 				}
 			}
+			// Retry the CM Broadcast request
+			var toRetryCM []string
+			for _, val := range failingCMReqs {
+				if val.err == nil {
+					toRetryCM = append(toRetryCM, val.address)
+				} else {
+					// Delete the view if it got a non-503 error
+					zap.L().Warn("Deleting view", zap.String("address", val.address))
+					sendViewRequest(http.MethodDelete, replica.addr, val.address, "")
+				}
+			}
 			if len(toRetry) == 0 {
 				return nil
 			}
 			conns = toRetry
+			cmReplicas = toRetryCM
 			time.Sleep(200 * time.Millisecond)
 		}
 	}

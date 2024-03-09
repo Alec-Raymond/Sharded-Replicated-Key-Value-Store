@@ -10,14 +10,6 @@ type VectorClock struct {
 	Self   string
 }
 
-type ComparisonResult int64
-
-const (
-	Greater ComparisonResult = iota
-	Concurrent
-	Lesser
-)
-
 func (vc *VectorClock) IsReadyFor(clientClock VectorClock, isRead bool, vcLock *sync.Mutex) bool {
 	// Returns true if I have satisfied all dependencies for the client clock.
 	vcLock.Lock()
@@ -48,7 +40,11 @@ func (vc *VectorClock) IsReadyFor(clientClock VectorClock, isRead bool, vcLock *
 	return isReady
 }
 
-func (vc *VectorClock) Compare(vc2 *VectorClock) ComparisonResult {
+// Compare returns the following:
+// -1 if vc < vc2
+// 0 if vc <= vc2
+// 1 if vc > vc2
+func (vc *VectorClock) Compare(vc2 *VectorClock) int {
 	// If all entries of vc >= vc2, and all clients in vc2 are in vc, vc > vc2.
 	clients := getAllClients(vc.Clocks, vc2.Clocks)
 
@@ -64,11 +60,11 @@ func (vc *VectorClock) Compare(vc2 *VectorClock) ComparisonResult {
 	}
 
 	if vcGreater && vcLess {
-		return Concurrent
+		return 0
 	} else if vcGreater {
-		return Greater
+		return 1
 	} else {
-		return Lesser
+		return -1
 	}
 }
 
@@ -87,7 +83,6 @@ func (vc *VectorClock) Accept(clientClock *VectorClock, isRead bool, vcLock *syn
 }
 
 func GetClientVectorClock(request *Request, clientIP string) VectorClock {
-	// fmt.Println("clientIP in getClientVectorClock:", clientIP)
 	var clientClock VectorClock
 
 	if len(request.CausalMetadata.Clocks) > 0 {

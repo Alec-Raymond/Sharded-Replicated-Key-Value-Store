@@ -5,7 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 
@@ -44,10 +44,12 @@ type GetResponse struct {
 }
 
 type Replica struct {
-	vcLock sync.Mutex
-	kv     map[string]any
-	vc     *VectorClock
-	addr   string
+	vcLock  sync.Mutex
+	kv      map[string]any
+	vc      *VectorClock
+	addr    string
+	shards  map[string][]string
+	shardId string
 	*ViewInfo
 }
 
@@ -56,14 +58,8 @@ type DataTransfer struct {
 	Vc VectorClock    `json:"Vc"`
 }
 
-type Choices []DataTransfer
-
-func (c Choices) Len() int           { return len(c) }
-func (c Choices) Swap(i, j int)      { c[i], c[j] = c[j], c[i] }
-func (c Choices) Less(i, j int) bool { return c[i].Vc.Compare(&c[j].Vc) == Lesser }
-
 func (r *Replica) ChooseData() {
-	var choices Choices
+	var choices []DataTransfer
 	for _, replica := range r.View {
 		resp, err := http.Get("http://" + replica + "/data")
 		if err != nil {
@@ -83,7 +79,9 @@ func (r *Replica) ChooseData() {
 		choices = append(choices, data)
 	}
 
-	sort.Sort(choices)
+	slices.SortFunc(choices, func(a, b DataTransfer) int {
+		return int(a.Vc.Compare(&b.Vc))
+	})
 	if len(choices) == 0 {
 		return
 	}
@@ -105,6 +103,7 @@ func NewReplica() *Replica {
 			Clocks: make(map[string]int),
 			Self:   address,
 		},
+		shards: make(map[string][]string),
 	}
 }
 
@@ -122,12 +121,11 @@ func (r *Replica) initReplica() {
 		zap.L().Info("Registering new replica with its views", zap.Strings("views", r.View))
 		Broadcast(&BroadcastRequest{
 			PollRequest: PollRequest{
-				Method:      http.MethodPut,
-				Payload:     payloadJson,
-				Endpoint:    "/view",
-				ExcludeAddr: r.addr,
+				Method:   http.MethodPut,
+				Payload:  payloadJson,
+				Endpoint: "/view",
 			},
-			Replicas: r.GetOtherViews(),
+			Targets: r.GetOtherViews(),
 		})
 	}
 	r.ChooseData()

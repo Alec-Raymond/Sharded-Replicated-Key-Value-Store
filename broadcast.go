@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -13,17 +12,16 @@ import (
 
 type BroadcastRequest struct {
 	PollRequest
-	Replicas []string
+	Targets []string
 }
 
-// Broadcast sends the requests to all the replicas
+// Broadcast sends the requests to all the nodes in a shard
 func Broadcast(br *BroadcastRequest) []FailingRequest {
 	zap.L().Info("In Broadcast", zap.Any("payload", *br))
 	var failingReqs []FailingRequest
 
-	urls := br.Replicas
+	urls := br.Targets
 	for _, addr := range urls {
-		//defer wg.Done()
 		// Create request
 		payload := br.Payload
 		endpoint := br.Endpoint
@@ -31,10 +29,9 @@ func Broadcast(br *BroadcastRequest) []FailingRequest {
 
 		url := fmt.Sprintf("http://%s%s", addr, endpoint)
 		zap.L().Info("Broadcasting to", zap.String("url", url))
-		// fmt.Printf("Broadcasting to %s, with payload %v\n", url, payload)
 		req, err := http.NewRequest(method, url, bytes.NewReader(payload))
 		if err != nil {
-			log.Println("[ERROR]", err)
+			zap.L().Error("Couldn't create request", zap.Error(err))
 			continue
 		}
 		req.Header.Set("Content-Type", "application/json")
@@ -62,4 +59,13 @@ func Broadcast(br *BroadcastRequest) []FailingRequest {
 		}
 	}
 	return failingReqs
+}
+
+type BroadcastCMRequest struct {
+	Targets []string
+}
+
+// BroadcastCM broadcasts the updated causal metadata to all the replicas
+func BroadcastCM(br *BroadcastCMRequest) []FailingRequest {
+	return []FailingRequest{}
 }
