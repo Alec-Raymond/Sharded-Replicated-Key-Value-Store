@@ -43,6 +43,11 @@ type GetResponse struct {
 	StoreValue
 }
 
+type Shard struct {
+	id           string
+	nodeAddrList []string
+}
+
 type Replica struct {
 	vcLock  sync.Mutex
 	kv      map[string]any
@@ -182,6 +187,11 @@ func main() {
 	e.PUT("/view", server.handleViewPut)
 	e.GET("/view", server.handleViewGet)
 	e.DELETE("/view", server.handleViewDelete)
+	e.PUT("/shard/add-member/:id", server.handleShardMemberPut)
+	e.GET("/shard/ids", server.handleShardIdGet)
+	e.GET("/shard/node-shard-id", server.handleShardNodeGet)
+	e.GET("/shard/members/:id", server.handleShardMembersGet)
+	e.GET("/shard/key-count/:id", server.handleShardKeyCount)
 	e.GET("/data", server.handleDataTransfer)
 
 	server.initReplica()
