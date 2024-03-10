@@ -1,11 +1,11 @@
 package main
 
 import (
-	"encoding/json"
 	"maps"
 	"net/http"
 	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
@@ -19,6 +19,7 @@ type Request struct {
 type Response struct {
 	Result         string      `json:"result"`
 	CausalMetadata VectorClock `json:"causal-metadata"`
+	ShardId        string      `json:"shard-id"`
 }
 
 type GetResponse struct {
@@ -36,6 +37,8 @@ func (r *Replica) handlePut(c echo.Context) error {
 
 	err := c.Bind(request)
 	if err != nil || request.Value == nil {
+		spew.Dump(request)
+		spew.Dump(err)
 		return c.JSON(
 			http.StatusBadRequest,
 			ErrResponse{Error: "PUT request does not specify a value"},
@@ -66,16 +69,9 @@ func (r *Replica) handlePut(c echo.Context) error {
 			IsBroadcast:    true,
 		}
 
-		broadcastPayloadJson, err := json.Marshal(broadcastPayload)
-
-		if err != nil {
-			zap.L().Error("failed to marshal broadcast payload (handlePut):", zap.Any("broadcastPayload", broadcastPayload), zap.Error(err))
-			return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
-		}
-
 		go r.BufferAtSender(&BufferAtSenderRequest{
 			Method:   http.MethodPut,
-			Payload:  broadcastPayloadJson,
+			Payload:  broadcastPayload,
 			Endpoint: "/kvs/" + key,
 			Targets:  FilterViews(r.shards[r.shardId], r.addr),
 		})
@@ -91,18 +87,11 @@ func (r *Replica) handlePut(c echo.Context) error {
 		CausalMetadata: copiedClock,
 	}
 
-	broadcastPayloadJson, err := json.Marshal(broadcastPayload)
-
-	if err != nil {
-		zap.L().Error("failed to marshal broadcast payload (handlePut):", zap.Any("broadcastPayload", broadcastPayload), zap.Error(err))
-		return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
-	}
-
 	go r.BufferAtSender(&BufferAtSenderRequest{
 		Method:   http.MethodPut,
 		Endpoint: "/cm",
 		Targets:  FilterViews(r.GetOtherViews(), r.shards[r.shardId]...),
-		Payload:  broadcastPayloadJson,
+		Payload:  broadcastPayload,
 	})
 
 	if !ok {
@@ -114,7 +103,7 @@ func (r *Replica) handlePut(c echo.Context) error {
 
 	r.kv[key] = request.Value
 	zap.L().Debug("Replaced kv", zap.String("key", key), zap.Any("value", r.kv[key]), zap.String("producer IP", c.RealIP()))
-	return c.JSON(http.StatusOK, Response{Result: "replaced", CausalMetadata: clientClock})
+	return c.JSON(http.StatusOK, Response{Result: "replaced", CausalMetadata: clientClock, ShardId: r.shardId})
 }
 
 func (r *Replica) handleGet(c echo.Context) error {
@@ -148,6 +137,7 @@ func (r *Replica) handleGet(c echo.Context) error {
 		Response: Response{
 			Result:         "found",
 			CausalMetadata: clientClock,
+			ShardId:        r.shardId,
 		},
 		StoreValue: StoreValue{
 			Value: val,
@@ -188,16 +178,9 @@ func (r *Replica) handleDelete(c echo.Context) error {
 			IsBroadcast:    true,
 		}
 
-		broadcastPayloadJson, err := json.Marshal(broadcastPayload)
-
-		if err != nil {
-			zap.L().Error("failed to marshal broadcast payload (handlePut):", zap.Any("broadcastPayload", broadcastPayload), zap.Error(err))
-			return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
-		}
-
 		go r.BufferAtSender(&BufferAtSenderRequest{
 			Method:   http.MethodDelete,
-			Payload:  broadcastPayloadJson,
+			Payload:  broadcastPayload,
 			Endpoint: "/kvs/" + key,
 		})
 	}
@@ -208,7 +191,7 @@ func (r *Replica) handleDelete(c echo.Context) error {
 
 	zap.L().Info("In DELETE /kvs/:key", zap.String("key", key), zap.String("ip", c.RealIP()))
 
-	return c.JSON(http.StatusOK, Response{Result: "deleted", CausalMetadata: clientClock})
+	return c.JSON(http.StatusOK, Response{Result: "deleted", CausalMetadata: clientClock, ShardId: r.shardId})
 }
 
 func (r *Replica) handleDataTransfer(c echo.Context) error {

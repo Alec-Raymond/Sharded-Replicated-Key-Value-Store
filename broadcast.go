@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/pkg/errors"
@@ -27,31 +29,24 @@ func Broadcast(br *BroadcastRequest) []FailingRequest {
 		endpoint := br.Endpoint
 		method := br.Method
 
-		url := fmt.Sprintf("http://%s%s", addr, endpoint)
-		zap.L().Info("Broadcasting to", zap.String("url", url))
-		req, err := http.NewRequest(method, url, bytes.NewReader(payload))
-		if err != nil {
-			zap.L().Error("Couldn't create request", zap.Error(err))
-			continue
-		}
-		req.Header.Set("Content-Type", "application/json")
-		// Perform request
-		client := http.Client{
-			Timeout: 200 * time.Millisecond,
-		}
-		res, err := client.Do(req)
+		res, err := SendRequest(HttpRequest{
+			method:   method,
+			endpoint: endpoint,
+			addr:     addr,
+			payload:  payload,
+		})
 		if err != nil {
 			failingReqs = append(failingReqs, FailingRequest{
 				address: addr,
 				err:     errors.New("failed request"),
 			})
-			zap.L().Warn("Request failed to", zap.String("url", url), zap.String("method", method))
+			zap.L().Warn("Request failed to", zap.String("addr", addr), zap.String("method", method))
 			continue
 
 		}
 		// Retry if status code is 503
 		if res.StatusCode == 503 {
-			zap.L().Info("Response returned 503. Going to retry this", zap.String("url", url), zap.String("method", method))
+			zap.L().Info("Response returned 503. Going to retry this", zap.String("addr", addr), zap.String("method", method))
 			failingReqs = append(failingReqs, FailingRequest{
 				address: addr,
 			})
@@ -59,4 +54,35 @@ func Broadcast(br *BroadcastRequest) []FailingRequest {
 		}
 	}
 	return failingReqs
+}
+
+type HttpRequest struct {
+	method   string
+	endpoint string
+	addr     string
+	payload  any
+}
+
+func SendRequest(r HttpRequest) (*http.Response, error) {
+	requestURL, err := url.Parse(fmt.Sprintf("http://%s%s", r.addr, r.endpoint))
+	if err != nil {
+		zap.L().Error("Couldn't parse URL", zap.Error(err))
+		return nil, err
+	}
+
+	json, err := json.Marshal(r.payload)
+	if err != nil {
+		zap.L().Error("Couldn't marshal to JSON", zap.Error(err))
+		return nil, err
+	}
+	req, err := http.NewRequest(r.method, requestURL.String(), bytes.NewBuffer(json))
+	if err != nil {
+		zap.L().Error("Couldn't construct request", zap.Error(err))
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := http.Client{
+		Timeout: 200 * time.Millisecond,
+	}
+	return client.Do(req)
 }

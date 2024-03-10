@@ -1,12 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"slices"
 	"time"
 
@@ -26,7 +23,7 @@ type FailingRequest struct {
 type BufferAtSenderRequest struct {
 	// Method must be either GET, PUT, or DELETE
 	Method  string
-	Payload []byte
+	Payload any
 	// Endpoint must start with a /
 	Endpoint string
 
@@ -35,28 +32,16 @@ type BufferAtSenderRequest struct {
 }
 
 func sendViewRequest(method string, addr string, send string, path string) (*http.Response, error) {
-	requestURL, err := url.Parse(fmt.Sprintf("http://%s/view%s", addr, path))
-	if err != nil {
-		zap.L().Error("Couldn't parse URL", zap.Error(err))
-	}
-
 	payload := map[string]string{
 		"socket-address": send,
 	}
-	json, err := json.Marshal(payload)
-	if err != nil {
-		zap.L().Error("Couldn't marshal to JSON", zap.Error(err))
-		return nil, err
-	}
-	req, err := http.NewRequest(method, requestURL.String(), bytes.NewBuffer(json))
-	if err != nil {
-		zap.L().Error("Couldn't construct request", zap.Error(err))
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-
-	return resp, err
+	endpoint := "/view" + path
+	return SendRequest(HttpRequest{
+		method:   method,
+		endpoint: endpoint,
+		addr:     addr,
+		payload:  payload,
+	})
 }
 
 // FilterViews removes `exclude` from the list of `views`
@@ -93,16 +78,9 @@ func (replica *Replica) handleViewPut(c echo.Context) error {
 		"socket-address": socket.Address,
 	}
 
-	broadcastPayload, err := json.Marshal(payload)
-
-	if err != nil {
-		zap.L().Error("Failed to marshal broadcast payload (handlePut):", zap.Any("broadcastPayload", broadcastPayload), zap.Error(err))
-		return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
-	}
-
 	go replica.BufferAtSender(&BufferAtSenderRequest{
 		Method:   http.MethodPut,
-		Payload:  broadcastPayload,
+		Payload:  payload,
 		Endpoint: "/view",
 		Targets:  FilterViews(replica.GetOtherViews(), socket.Address),
 	})
@@ -195,15 +173,9 @@ func (replica *Replica) handleViewDelete(c echo.Context) error {
 				"socket-address": socket.Address,
 				"is-broadcast":   true,
 			}
-			broadcastPayload, err := json.Marshal(payload)
-
-			if err != nil {
-				zap.L().Error("failed to marshal broadcast payload (handleDelete):", zap.Any("broadcastPayload", broadcastPayload), zap.Error(err))
-				return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
-			}
 			go replica.BufferAtSender(&BufferAtSenderRequest{
 				Method:   http.MethodDelete,
-				Payload:  broadcastPayload,
+				Payload:  payload,
 				Endpoint: "/view",
 				Targets:  FilterViews(replica.View, socket.Address),
 			})
