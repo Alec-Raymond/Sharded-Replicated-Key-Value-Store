@@ -70,21 +70,26 @@ func (r *Replica) handleReshard(c echo.Context) error {
 		data, err := getKvData(nodes[0])
 		if err != nil {
 			zap.L().Error("Failed to fetch data for", zap.String("shardId", shardId), zap.Error(err))
-			return err
+			// TODO: maybe delete this replica from the view if its unresponsive
+			return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "couldn't fetch data"})
 		}
 		maps.Copy(allKvs, data.Kv)
 	}
 	// Move nodes to new shard
-	newShards := make(map[string][]string)
-	for _, replica := range r.View {
-		newShards[ /*hash*/ "some hash"] = append(newShards[ /*hash*/ "some hash"], replica)
+	newShards, err := initShards(rr.ShardCount, r.View)
+	if err != nil {
+		zap.L().Error("Failed to init shard names", zap.Error(err))
+		return c.JSON(http.StatusBadRequest, ErrResponse{Error: "bad reshard request"})
 	}
 	// Update nodes with new keys and new shardState
 	newKv := make(map[string]map[string]any)
 	for k, v := range allKvs {
-		kv := newKv["some hash"]
+		// Get KV for the relevant shard
+		kv := newKv[findShard(k, newShards)]
+
+		// Add this key value pair to it
 		kv[k] = v
-		newKv[ /*hashed key */ "some hash"] = kv
+		newKv[findShard(k, newShards)] = kv
 	}
 	// Broadcast this state update to each shard
 	// Including self

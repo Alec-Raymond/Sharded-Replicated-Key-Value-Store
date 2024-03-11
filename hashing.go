@@ -13,7 +13,11 @@ func hash(key string) int {
 	return (int)(hashedKey[15])
 }
 
-func findShard(key string, shardNames []string) string {
+func findShard(key string, shards map[string][]string) string {
+	shardNames := make([]string, 0)
+	for s := range shards {
+		shardNames = append(shardNames, s)
+	}
 	var left, right, mid int
 	right = len(shardNames) - 1
 
