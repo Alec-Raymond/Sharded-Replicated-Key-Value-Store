@@ -29,14 +29,14 @@ func (r *Replica) ForwardRemoteKey(next echo.HandlerFunc) echo.HandlerFunc {
 			return c.JSON(http.StatusBadRequest, ErrResponse{Error: "Key is too long"})
 		}
 
-		for shardName, _ := range r.shards {
+		for shardName := range r.shards {
 			shardNames = append(shardNames, shardName)
 		}
 
 		shardId := findShard(key, shardNames)
 
 		// If it belongs to the current replica then call the next function
-		if shardId == (r.shardId) {
+		if shardId == r.shardId {
 			zap.L().Info("Local key, no need to forward")
 			return next(c)
 		}
@@ -60,7 +60,7 @@ func (r *Replica) ForwardRemoteKey(next echo.HandlerFunc) echo.HandlerFunc {
 		zap.L().Info("remote key, forwarding request to", zap.String("shardId", shardId))
 		res, err := SendRequest(HttpRequest{
 			method:   method,
-			endpoint: "/kv" + key,
+			endpoint: "/kv/" + key,
 			addr:     nodes[0],
 			payload:  payload,
 		})

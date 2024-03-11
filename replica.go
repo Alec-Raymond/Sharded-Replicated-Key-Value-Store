@@ -128,7 +128,7 @@ func initShards(shardCount int, view []string) (map[string][]string, error) {
 		}
 	}
 
-	fmt.Println("Initialize Shards:", shards)
+	zap.L().Info("Initialize Shards", zap.Any("shards", shards))
 
 	return shards, nil
 }
