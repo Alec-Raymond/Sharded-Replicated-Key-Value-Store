@@ -96,11 +96,16 @@ func main() {
 	e.PUT("/view", server.handleViewPut)
 	e.GET("/view", server.handleViewGet)
 	e.DELETE("/view", server.handleViewDelete)
-	e.PUT("/shard/add-member/:id", server.handleShardMemberPut)
-	e.GET("/shard/ids", server.handleShardIdGet)
-	e.GET("/shard/node-shard-id", server.handleShardNodeGet)
-	e.GET("/shard/members/:id", server.handleShardMembersGet)
-	e.GET("/shard/key-count/:id", server.handleShardKeyCount)
+
+	sh := e.Group("/shard")
+	sh.PUT("/add-member/:id", server.handleShardMemberPut)
+	sh.GET("/ids", server.handleShardIdGet)
+	sh.GET("/node-shard-id", server.handleShardNodeGet)
+	sh.GET("/members/:id", server.handleShardMembersGet)
+	sh.GET("/key-count/:id", server.handleShardKeyCount)
+	sh.PUT("/reshard", server.handleReshard)
+	sh.PUT("/update", server.handleUpdateShard)
+
 	e.GET("/data", server.handleDataTransfer)
 	e.PUT("/cm", server.handlePutCM)
 

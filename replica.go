@@ -38,25 +38,32 @@ type DataTransfer struct {
 	Vc VectorClock    `json:"Vc"`
 }
 
+func getKvData(addr string) (DataTransfer, error) {
+	resp, err := http.Get(fmt.Sprintf("http://%s/data", addr))
+	if err != nil {
+		return DataTransfer{}, err
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return DataTransfer{}, err
+	}
+
+	var data DataTransfer
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		return DataTransfer{}, err
+	}
+	return data, nil
+}
+
 // initKV initializes a Replica's kv store and vc from the existing replicas with the
 // most updated state.
 func (r *Replica) initKV() {
 	var choices []DataTransfer
 	shard := r.shards[r.shardId]
-
 	for _, replica := range shard {
-		resp, err := http.Get(fmt.Sprintf("http://%s/data", replica))
-		if err != nil {
-			continue
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			continue
-		}
-
-		var data DataTransfer
-		err = json.Unmarshal(body, &data)
+		data, err := getKvData(replica)
 		if err != nil {
 			continue
 		}
