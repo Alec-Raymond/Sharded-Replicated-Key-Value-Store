@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
+	"math"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
 )
 
 type ShardIdsResponse struct {
@@ -23,6 +26,96 @@ type ShardMembersResponse struct {
 
 type ShardKeyCountResponse struct {
 	ShardKeyCount int `json:"shard-key-count"`
+}
+
+type ReshardUpdate struct {
+	ShardCount int                 `json:"shard-count"`
+	ShardId    string              `json:"node-shard-id"`
+	Shards     map[string][]string `json:"shards"`
+	KV         map[string]any      `json:"kv"`
+}
+
+func (r *Replica) handleReshard(c echo.Context) error {
+	type ReshardRequest struct {
+		ShardCount int `json:"shard-count"`
+	}
+	rr := new(ReshardRequest)
+	if err := c.Bind(rr); err != nil || rr == nil || rr.ShardCount == 0 {
+		return c.JSON(http.StatusBadRequest,
+			ErrResponse{Error: "Reshard request does not specify a valid shard count"},
+		)
+	}
+
+	totalNodes := 0
+	for _, nodes := range r.shards {
+		totalNodes += len(nodes)
+	}
+
+	// Check if there are enough nodes to provide fault tolerance
+	if math.Floor(float64(totalNodes)/float64(rr.ShardCount)) < 2 {
+		return c.JSON(http.StatusBadRequest, ErrResponse{
+			Error: "Not enough nodes to provide fault tolerance with requested shard count"},
+		)
+	}
+
+	if rr.ShardCount == r.shardCount {
+		return c.JSON(http.StatusOK, ActionResponse{
+			Result: "resharded"})
+	}
+
+	zap.L().Info("Resharding", zap.String("leader-ip", r.addr))
+	// Aggregate all the key-value pairs
+	allKvs := make(map[string]any)
+	for shardId, nodes := range r.shards {
+		data, err := getKvData(nodes[0])
+		if err != nil {
+			zap.L().Error("Failed to fetch data for", zap.String("shardId", shardId), zap.Error(err))
+			return err
+		}
+		maps.Copy(allKvs, data.Kv)
+	}
+	// Move nodes to new shard
+	newShards := make(map[string][]string)
+	for _, replica := range r.View {
+		newShards[ /*hash*/ "some hash"] = append(newShards[ /*hash*/ "some hash"], replica)
+	}
+	// Update nodes with new keys and new shardState
+	newKv := make(map[string]map[string]any)
+	for k, v := range allKvs {
+		kv := newKv["some hash"]
+		kv[k] = v
+		newKv[ /*hashed key */ "some hash"] = kv
+	}
+	// Broadcast this state update to each shard
+	// Including self
+	for sh, nodes := range newShards {
+		go r.BufferAtSender(&BufferAtSenderRequest{
+			Method: http.MethodPut,
+			Payload: ReshardUpdate{
+				ShardCount: rr.ShardCount,
+				ShardId:    sh,
+				Shards:     newShards,
+				KV:         newKv[sh],
+			},
+			Targets:  nodes,
+			Endpoint: "/shard/update",
+		})
+	}
+
+	return c.JSON(http.StatusOK, ActionResponse{Result: "resharded"})
+}
+
+func (replica *Replica) handleUpdateShard(c echo.Context) error {
+	ru := new(ReshardUpdate)
+	if err := c.Bind(ru); err != nil || ru == nil {
+		return c.JSON(http.StatusBadRequest, ErrResponse{Error: "missing KV, Shards, or node ID"})
+	}
+	replica.kv = ru.KV
+	replica.shardId = ru.ShardId
+	replica.shardCount = ru.ShardCount
+	replica.shards = ru.Shards
+
+	return c.JSON(http.StatusOK, ActionResponse{Result: "updated"})
 }
 
 func (replica *Replica) handleShardMemberPut(c echo.Context) error {
