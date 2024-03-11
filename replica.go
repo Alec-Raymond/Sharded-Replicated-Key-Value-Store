@@ -98,7 +98,39 @@ func (r *Replica) initReplica() {
 			Targets: r.GetOtherViews(),
 		})
 	}
-	r.initKV()
+	// Unnecessary to initialize KV yet, because we don't know what shard we are part of.
+	// r.initKV()
+}
+
+func initShards(shardCount int, view []string) (map[string][]string, error) {
+	shards := make(map[string][]string)
+	var start int
+	var shardName string
+
+	if shardCount == 0 {
+		return shards, nil
+	}
+
+	shardSize := len(view) / shardCount
+
+	if shardSize < 2 {
+		return nil, fmt.Errorf("average shard size cannot satisfy fault-tolerance: there are %d shards, %d replicas and an even sharding would result in %d replicas per shard", shardCount, len(view), shardSize)
+	}
+
+	start = -1 * shardSize
+
+	for shardId := 0; shardId < shardCount; shardId++ {
+		start = start + shardSize
+		shardName = "s" + (string)(shardId)
+		shards[shardName] = view[start : start+shardSize]
+		if start+2*shardSize >= len(view) {
+			shards[shardName] = append(shards[shardName], view[start+shardSize:]...)
+		}
+	}
+
+	fmt.Println("Initialize Shards:", shards)
+
+	return shards, nil
 }
 
 func NewReplica() *Replica {
@@ -114,8 +146,14 @@ func NewReplica() *Replica {
 		if err != nil {
 			panic(err)
 		}
-
 	}
+
+	shards, err := initShards(shardCount, strings.Split(view, ","))
+
+	if err != nil {
+		panic(err)
+	}
+
 	return &Replica{
 		addr: address,
 		ViewInfo: &ViewInfo{
@@ -127,7 +165,7 @@ func NewReplica() *Replica {
 			Self:   address,
 		},
 		shardCount: shardCount,
-		shards:     make(map[string][]string),
+		shards:     shards,
 	}
 }
 

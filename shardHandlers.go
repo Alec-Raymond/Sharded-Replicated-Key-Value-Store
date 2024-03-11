@@ -68,6 +68,7 @@ func (replica *Replica) handleShardMemberPut(c echo.Context) error {
 			// Only other replicas will be broadcasted to
 			Targets: FilterViews(replica.GetOtherViews(), socket.Address),
 		})
+
 		//TODO: Sync replica data with shard
 
 		return c.JSON(http.StatusOK, ResponseNC{Result: "node added to shard"})
