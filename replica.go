@@ -42,7 +42,9 @@ type DataTransfer struct {
 // most updated state.
 func (r *Replica) initKV() {
 	var choices []DataTransfer
-	for _, replica := range r.View {
+	shard := r.shards[r.shardId]
+
+	for _, replica := range shard {
 		resp, err := http.Get(fmt.Sprintf("http://%s/data", replica))
 		if err != nil {
 			continue
