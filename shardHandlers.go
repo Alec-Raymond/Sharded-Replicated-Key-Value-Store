@@ -69,7 +69,8 @@ func (replica *Replica) handleShardMemberPut(c echo.Context) error {
 			Targets: FilterViews(replica.GetOtherViews(), socket.Address),
 		})
 
-		//TODO: Sync replica data with shard
+		// Sync replica data with shard
+		go replica.initKV()
 
 		return c.JSON(http.StatusOK, ResponseNC{Result: "node added to shard"})
 	}
@@ -102,24 +103,32 @@ func (replica *Replica) handleShardMembersGet(c echo.Context) error {
 
 func (replica *Replica) handleShardKeyCount(c echo.Context) error {
 	shardId := c.Param("id")
+
+	if shardId == replica.shardId {
+		return c.JSON(http.StatusOK, ShardKeyCountResponse{ShardKeyCount: len(replica.kv)})
+	}
+
 	shardNodes, shardExists := replica.shards[shardId]
 	if !shardExists {
 		return c.JSON(http.StatusNotFound, ErrResponse{Error: "Shard ID does not exist"})
 	}
-	resp, err := http.Get(fmt.Sprintf("http://%s/data", shardNodes[0]))
+
+	resp, err := http.Get(fmt.Sprintf("http://%s/shard/key-count/%s", shardNodes[0], shardId))
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "Request to transfer data failed"})
+		return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "Request for key count failed"})
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "Couldn't read response data"})
+		return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "Couldn't read response from the node"})
 	}
 
-	var data DataTransfer
-	err = json.Unmarshal(body, &data)
+	var shardKeyCount ShardKeyCountResponse
+	err = json.Unmarshal(body, &shardKeyCount)
+
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "Couldn't unmarshal response data"})
 	}
-	return c.JSON(http.StatusOK, ShardKeyCountResponse{ShardKeyCount: len(data.Kv)})
+
+	return c.JSON(http.StatusOK, shardKeyCount)
 }
