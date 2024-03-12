@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
@@ -14,6 +13,10 @@ type Request struct {
 	StoreValue
 	CausalMetadata VectorClock `json:"causal-metadata"`
 	IsBroadcast    bool        `json:"is-broadcast,omitempty"`
+}
+
+type ActionResponse struct {
+	Result string `json:"result"`
 }
 
 type Response struct {
@@ -35,10 +38,7 @@ func (r *Replica) handlePut(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, ErrResponse{Error: "Key is too long"})
 	}
 
-	err := c.Bind(request)
-	if err != nil || request.Value == nil {
-		spew.Dump(request)
-		spew.Dump(err)
+	if err := c.Bind(request); err != nil || request.Value == nil {
 		return c.JSON(
 			http.StatusBadRequest,
 			ErrResponse{Error: "PUT request does not specify a value"},

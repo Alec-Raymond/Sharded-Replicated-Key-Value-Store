@@ -23,20 +23,14 @@ func (r *Replica) ReplicaStatus(next echo.HandlerFunc) echo.HandlerFunc {
 
 func (r *Replica) ForwardRemoteKey(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		var shardNames []string
 		key := c.Param("key")
 		if len(key) > 50 {
 			return c.JSON(http.StatusBadRequest, ErrResponse{Error: "Key is too long"})
 		}
-
-		for shardName, _ := range r.shards {
-			shardNames = append(shardNames, shardName)
-		}
-
-		shardId := findShard(key, shardNames)
+		shardId := findShard(key, r.shards)
 
 		// If it belongs to the current replica then call the next function
-		if shardId == (r.shardId) {
+		if shardId == r.shardId {
 			zap.L().Info("Local key, no need to forward")
 			return next(c)
 		}
@@ -58,15 +52,35 @@ func (r *Replica) ForwardRemoteKey(next echo.HandlerFunc) echo.HandlerFunc {
 
 		}
 		zap.L().Info("remote key, forwarding request to", zap.String("shardId", shardId))
-		res, err := SendRequest(HttpRequest{
-			method:   method,
-			endpoint: "/kv" + key,
-			addr:     nodes[0],
-			payload:  payload,
-		})
+
+		// TODO: send a request to the first available replica
+		// in the other shard. If any fail, broadcaste a DELETE
+		// view operation
+		var (
+			res *http.Response
+			err error
+		)
+		for _, n := range nodes {
+			p := payload
+			res, err = SendRequest(HttpRequest{
+				method:   method,
+				endpoint: "/kv/" + key,
+				addr:     n,
+				payload:  p,
+			})
+			if err == nil {
+				break
+			}
+			zap.L().Warn("couldn't forward request", zap.String("remote-node", n))
+			zap.L().Info("deleting node", zap.String("delete-node", n))
+			sendViewRequest(http.MethodDelete, r.addr, n, "")
+		}
 		// Return
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "couldn't forward request"})
+			return c.JSON(
+				http.StatusInternalServerError,
+				ErrResponse{Error: "couldn't forward request"},
+			)
 		}
 		return c.Stream(res.StatusCode, "application/json", res.Body)
 	}
@@ -96,11 +110,16 @@ func main() {
 	e.PUT("/view", server.handleViewPut)
 	e.GET("/view", server.handleViewGet)
 	e.DELETE("/view", server.handleViewDelete)
-	e.PUT("/shard/add-member/:id", server.handleShardMemberPut)
-	e.GET("/shard/ids", server.handleShardIdGet)
-	e.GET("/shard/node-shard-id", server.handleShardNodeGet)
-	e.GET("/shard/members/:id", server.handleShardMembersGet)
-	e.GET("/shard/key-count/:id", server.handleShardKeyCount)
+
+	sh := e.Group("/shard")
+	sh.PUT("/add-member/:id", server.handleShardMemberPut)
+	sh.GET("/ids", server.handleShardIdGet)
+	sh.GET("/node-shard-id", server.handleShardNodeGet)
+	sh.GET("/members/:id", server.handleShardMembersGet)
+	sh.GET("/key-count/:id", server.handleShardKeyCount)
+	sh.PUT("/reshard", server.handleReshard)
+	sh.PUT("/update", server.handleUpdateShard)
+
 	e.GET("/data", server.handleDataTransfer)
 	e.PUT("/cm", server.handlePutCM)
 

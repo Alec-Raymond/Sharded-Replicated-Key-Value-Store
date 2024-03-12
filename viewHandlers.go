@@ -31,9 +31,9 @@ type BufferAtSenderRequest struct {
 	Targets []string
 }
 
-func sendViewRequest(method string, addr string, send string, path string) (*http.Response, error) {
+func sendViewRequest(method string, addr string, socketAddr string, path string) (*http.Response, error) {
 	payload := map[string]string{
-		"socket-address": send,
+		"socket-address": socketAddr,
 	}
 	endpoint := "/view" + path
 	return SendRequest(HttpRequest{

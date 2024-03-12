@@ -38,25 +38,32 @@ type DataTransfer struct {
 	Vc VectorClock    `json:"Vc"`
 }
 
+func getKvData(addr string) (DataTransfer, error) {
+	resp, err := http.Get(fmt.Sprintf("http://%s/data", addr))
+	if err != nil {
+		return DataTransfer{}, err
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return DataTransfer{}, err
+	}
+
+	var data DataTransfer
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		return DataTransfer{}, err
+	}
+	return data, nil
+}
+
 // initKV initializes a Replica's kv store and vc from the existing replicas with the
 // most updated state.
 func (r *Replica) initKV() {
 	var choices []DataTransfer
 	shard := r.shards[r.shardId]
-
 	for _, replica := range shard {
-		resp, err := http.Get(fmt.Sprintf("http://%s/data", replica))
-		if err != nil {
-			continue
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			continue
-		}
-
-		var data DataTransfer
-		err = json.Unmarshal(body, &data)
+		data, err := getKvData(replica)
 		if err != nil {
 			continue
 		}
@@ -75,9 +82,9 @@ func (r *Replica) initKV() {
 }
 
 func (r *Replica) initReplica() {
-	// Skip registration if the shardCount is 0 indicating that
-	// the replica has stopped and came back up
-	if r.shardCount == 0 {
+	// Skip registration if the shardCount is not 0 indicating that
+	// the replica has come up for the first time
+	if r.shardCount != 0 {
 		return
 	}
 	zap.L().Info("Initializing replica", zap.String("addr", r.addr))
@@ -100,8 +107,7 @@ func (r *Replica) initReplica() {
 			Targets: r.GetOtherViews(),
 		})
 	}
-	// Unnecessary to initialize KV yet, because we don't know what shard we are part of.
-	// r.initKV()
+	// Don't initialize KV yet, because we don't know what shard we are part of.
 }
 
 func initShards(shardCount int, view []string) (map[string][]string, error) {
@@ -130,7 +136,7 @@ func initShards(shardCount int, view []string) (map[string][]string, error) {
 		}
 	}
 
-	fmt.Println("Initialize Shards:", shards)
+	zap.L().Info("Initialize Shards", zap.Any("shards", shards))
 
 	return shards, nil
 }
