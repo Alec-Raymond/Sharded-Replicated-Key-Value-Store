@@ -178,6 +178,7 @@ func (replica *Replica) handleShardIdGet(c echo.Context) error {
 }
 
 func (replica *Replica) handleShardNodeGet(c echo.Context) error {
+	zap.L().Info("in handleShardNodeGet", zap.String("node-shard-id", replica.shardId))
 	if replica.shardId != "" {
 		return c.JSON(http.StatusOK, NodeIdResponse{NodeShardId: replica.shardId})
 	}

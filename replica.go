@@ -125,15 +125,14 @@ func initShards(shardCount int, view []string) (map[string][]string, error) {
 		return nil, fmt.Errorf("average shard size cannot satisfy fault-tolerance: there are %d shards, %d replicas and an even sharding would result in %d replicas per shard", shardCount, len(view), shardSize)
 	}
 
-	start = -1 * shardSize
-
+	start = 0
 	for shardId := 0; shardId < shardCount; shardId++ {
-		start = start + shardSize                         // 0
 		shardName = fmt.Sprintf("s%d", shardId)           // s0
 		shards[shardName] = view[start : start+shardSize] // [1, 2, 3]
 		if start+2*shardSize > len(view) {                // 6 !> 6
 			shards[shardName] = append(shards[shardName], view[start+shardSize:]...)
 		}
+		start += shardSize
 	}
 
 	zap.L().Info("Initialize Shards", zap.Any("shards", shards))
@@ -158,6 +157,15 @@ func NewReplica() *Replica {
 
 	shards, err := initShards(shardCount, strings.Split(view, ","))
 
+	// Get the nodeShardId of the current node
+	nodeShardId := ""
+	for sh, nodes := range shards {
+		if slices.Contains(nodes, address) {
+			nodeShardId = sh
+			break
+		}
+	}
+
 	if err != nil {
 		panic(err)
 	}
@@ -174,6 +182,7 @@ func NewReplica() *Replica {
 		},
 		shardCount: shardCount,
 		shards:     shards,
+		shardId:    nodeShardId,
 	}
 }
 
