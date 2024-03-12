@@ -52,15 +52,35 @@ func (r *Replica) ForwardRemoteKey(next echo.HandlerFunc) echo.HandlerFunc {
 
 		}
 		zap.L().Info("remote key, forwarding request to", zap.String("shardId", shardId))
-		res, err := SendRequest(HttpRequest{
-			method:   method,
-			endpoint: "/kv/" + key,
-			addr:     nodes[0],
-			payload:  payload,
-		})
+
+		// TODO: send a request to the first available replica
+		// in the other shard. If any fail, broadcaste a DELETE
+		// view operation
+		var (
+			res *http.Response
+			err error
+		)
+		for _, n := range nodes {
+			p := payload
+			res, err = SendRequest(HttpRequest{
+				method:   method,
+				endpoint: "/kv/" + key,
+				addr:     n,
+				payload:  p,
+			})
+			if err == nil {
+				break
+			}
+			zap.L().Warn("couldn't forward request", zap.String("remote-node", n))
+			zap.L().Info("deleting node", zap.String("delete-node", n))
+			sendViewRequest(http.MethodDelete, r.addr, n, "")
+		}
 		// Return
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "couldn't forward request"})
+			return c.JSON(
+				http.StatusInternalServerError,
+				ErrResponse{Error: "couldn't forward request"},
+			)
 		}
 		return c.Stream(res.StatusCode, "application/json", res.Body)
 	}
