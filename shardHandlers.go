@@ -153,15 +153,9 @@ func (replica *Replica) handleShardMemberPut(c echo.Context) error {
 		payload := map[string]string{
 			"socket-address": socket.Address,
 		}
-
-		payloadJson, err := json.Marshal(payload)
-
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "failed to marshal payload to json"})
-		}
 		go replica.BufferAtSender(&BufferAtSenderRequest{
 			Method:   http.MethodPut,
-			Payload:  payloadJson,
+			Payload:  payload,
 			Endpoint: "/shard/add-member/" + shardId,
 			// Only other replicas will be broadcasted to
 			Targets: FilterViews(replica.GetOtherViews(), socket.Address),
