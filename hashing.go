@@ -14,8 +14,6 @@ func hash(key string) int {
 }
 
 func findShard(key string, shardNames []string) string {
-	// TO-DO: Implement findShard
-
 	var left, right, mid int
 	right = len(shardNames) - 1
 

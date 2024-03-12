@@ -123,7 +123,7 @@ func initShards(shardCount int, view []string) (map[string][]string, error) {
 
 	for shardId := 0; shardId < shardCount; shardId++ {
 		start = start + shardSize
-		shardName = "s" + (string)(shardId)
+		shardName = fmt.Sprintf("s%d", shardId)
 		shards[shardName] = view[start : start+shardSize]
 		if start+2*shardSize >= len(view) {
 			shards[shardName] = append(shards[shardName], view[start+shardSize:]...)
