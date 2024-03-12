@@ -16,7 +16,7 @@ func (r *Replica) ReplicaStatus(next echo.HandlerFunc) echo.HandlerFunc {
 		}
 		r.vcLock.Lock()
 		defer r.vcLock.Unlock()
-		zap.L().Info("In Status", zap.Any("kv", r.kv), zap.Strings("views", r.View))
+		zap.L().Info("In Status" /*zap.Any("kv", r.kv), zap.Strings("views", r.View),*/, zap.Any("shards", r.shards))
 		return nil
 	}
 }
@@ -52,29 +52,15 @@ func (r *Replica) ForwardRemoteKey(next echo.HandlerFunc) echo.HandlerFunc {
 
 		}
 		zap.L().Info("remote key, forwarding request to", zap.String("shardId", shardId))
-
-		// TODO: send a request to the first available replica
-		// in the other shard. If any fail, broadcaste a DELETE
-		// view operation
-		var (
-			res *http.Response
-			err error
-		)
-		for _, n := range nodes {
-			p := payload
-			res, err = SendRequest(HttpRequest{
-				method:   method,
-				endpoint: "/kvs/" + key,
-				addr:     n,
-				payload:  p,
-			})
-			if err == nil {
-				break
-			}
-			zap.L().Warn("couldn't forward request", zap.String("remote-node", n))
-			zap.L().Info("deleting node", zap.String("delete-node", n))
-			sendViewRequest(http.MethodDelete, r.addr, n, "")
-		}
+		res, err := BroadcastFirst(&BroadcastFirstRequest{
+			BroadcastRequest: BroadcastRequest{
+				Targets:  nodes,
+				Method:   method,
+				Payload:  payload,
+				Endpoint: "/kvs/" + key,
+			},
+			srcAddr: r.addr,
+		})
 		// Return
 		if err != nil {
 			return c.JSON(
@@ -94,7 +80,7 @@ func main() {
 	e := echo.New()
 
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
-		Format: "method=${method}, uri=${uri}, status=${status}\n",
+		Format: "method=${method}, remote_ip=${remote_ip} uri=${uri}, status=${status}\n",
 	}))
 
 	server := NewReplica()

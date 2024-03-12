@@ -57,12 +57,42 @@ func getKvData(addr string) (DataTransfer, error) {
 	return data, nil
 }
 
-// initKV initializes a Replica's kv store and vc from the existing replicas with the
+// initKV initializes a Replica's kv store, vc, and shard mapping from the existing replicas with the
 // most updated state.
-func (r *Replica) initKV() {
-	var choices []DataTransfer
+func (r *Replica) initKV(shardId string) {
+	// Get all the shards from the first responsive node
+	r.shardId = shardId
+	res, err := BroadcastFirst(&BroadcastFirstRequest{
+		BroadcastRequest: BroadcastRequest{
+			Method:   http.MethodGet,
+			Targets:  r.GetOtherViews(),
+			Endpoint: "/shard/ids",
+		},
+		srcAddr: r.addr,
+	})
+	if err != nil {
+		zap.L().Fatal("unable to get shardIds")
+	}
+	var shards ShardIdsResponse
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		zap.L().Fatal("unable to read response body")
+	}
+	err = json.Unmarshal(data, &shards)
+	if err != nil {
+		zap.L().Fatal("unable to unmarshal response body")
+	}
+	r.shards, err = initShards(len(shards.ShardIds), r.View)
+	if err != nil {
+		zap.L().Fatal("unable to initialize shards body")
+	}
+	// Get the kv data
 	shard := r.shards[r.shardId]
+	var choices []DataTransfer
 	for _, replica := range shard {
+		if replica == r.addr {
+			continue
+		}
 		data, err := getKvData(replica)
 		if err != nil {
 			continue
@@ -92,21 +122,13 @@ func (r *Replica) initReplica() {
 		"socket-address": r.addr,
 	}
 
-	payloadJson, err := json.Marshal(payload)
-
-	if err != nil {
-		zap.L().Error("JSON error during server init", zap.Error(err))
-	} else {
-		zap.L().Info("Registering new replica with its views", zap.Strings("views", r.View))
-		Broadcast(&BroadcastRequest{
-			BufferAtSenderRequest: BufferAtSenderRequest{
-				Method:   http.MethodPut,
-				Payload:  payloadJson,
-				Endpoint: "/view",
-			},
-			Targets: r.GetOtherViews(),
-		})
-	}
+	zap.L().Info("Registering new replica with its views", zap.Strings("views", r.View))
+	Broadcast(&BroadcastRequest{
+		Method:   http.MethodPut,
+		Payload:  payload,
+		Endpoint: "/view",
+		Targets:  r.GetOtherViews(),
+	})
 	// Don't initialize KV yet, because we don't know what shard we are part of.
 }
 

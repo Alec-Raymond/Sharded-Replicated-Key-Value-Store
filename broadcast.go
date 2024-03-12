@@ -12,9 +12,11 @@ import (
 	"go.uber.org/zap"
 )
 
-type BroadcastRequest struct {
-	BufferAtSenderRequest
-	Targets []string
+type BroadcastRequest = BufferAtSenderRequest
+
+type BroadcastFirstRequest struct {
+	BroadcastRequest
+	srcAddr string
 }
 
 // Broadcast sends the requests to all the nodes in br.Targets
@@ -54,6 +56,33 @@ func Broadcast(br *BroadcastRequest) []FailingRequest {
 		}
 	}
 	return failingReqs
+}
+
+// BroadcastFirst sends requests to the list of target nodes until one
+// responds successfully. If one fails to respond it sends a delete request
+func BroadcastFirst(br *BroadcastFirstRequest) (*http.Response, error) {
+	zap.L().Info("In BroadcastFirst")
+	var (
+		res *http.Response
+		err error
+	)
+	for _, n := range br.Targets {
+		p := br.Payload
+		res, err = SendRequest(HttpRequest{
+			method:   br.Method,
+			endpoint: br.Endpoint,
+			addr:     n,
+			payload:  p,
+		})
+		if err == nil {
+			break
+		}
+		zap.L().Warn("couldn't send read request", zap.String("remote-node", n))
+		zap.L().Info("deleting node", zap.String("delete-node", n))
+		sendViewRequest(http.MethodDelete, br.srcAddr, n, "")
+	}
+	return res, nil
+
 }
 
 type HttpRequest struct {

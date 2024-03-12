@@ -114,10 +114,7 @@ func (replica *Replica) BufferAtSender(pr *BufferAtSenderRequest) error {
 			zap.L().Error("BufferAtSender timed out")
 			return errors.New("timed out")
 		default:
-			failingReqs := Broadcast(&BroadcastRequest{
-				Targets:               conns,
-				BufferAtSenderRequest: *pr,
-			})
+			failingReqs := Broadcast(pr)
 			// Retry the broadcast request
 			var toRetry []string
 			for _, val := range failingReqs {

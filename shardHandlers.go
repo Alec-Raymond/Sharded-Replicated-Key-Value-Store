@@ -7,6 +7,7 @@ import (
 	"maps"
 	"math"
 	"net/http"
+	"slices"
 
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
@@ -133,39 +134,49 @@ func (replica *Replica) handleShardMemberPut(c echo.Context) error {
 	}
 
 	viewExists := false
+	// Sync replica data with shard if it hasn't already
+	if replica.addr == socket.Address && replica.shardId == "" {
+		replica.initKV(shardId)
+	}
 	_, shardExists := replica.shards[shardId]
 
-	// This doesn't work if the <IP:PORT> is the current replica's IP, but I'm not sure if it should
-	for _, r := range replica.GetOtherViews() {
+	for _, r := range replica.View {
 		if socket.Address == r {
 			viewExists = true
 		}
 	}
 
+	// Validate the node's existence as well as the shard
 	if !shardExists && !viewExists {
+		zap.L().Error("view and shard don't exist")
 		return c.JSON(http.StatusNotFound, ErrResponse{Error: "View and Shard don't exist"})
 	} else if !viewExists {
+		zap.L().Error("view doesn't exist")
 		return c.JSON(http.StatusNotFound, ErrResponse{Error: "View doesn't exist"})
 	} else if !shardExists {
+		zap.L().Error("shard doesn't exist", zap.String("shard-id", shardId))
 		return c.JSON(http.StatusNotFound, ErrResponse{Error: "Shard doesn't exist"})
-	} else {
+	}
+
+	// Add this node to the shard if it isn't already
+	if !slices.Contains(replica.shards[shardId], socket.Address) {
 		replica.shards[shardId] = append(replica.shards[shardId], socket.Address)
-		payload := map[string]string{
-			"socket-address": socket.Address,
+	}
+	// Then broadcast it if this hasn't been broadcast yet
+	if !socket.IsBroadcast {
+		payload := SocketAddress{
+			Address:     socket.Address,
+			IsBroadcast: true,
 		}
 		go replica.BufferAtSender(&BufferAtSenderRequest{
 			Method:   http.MethodPut,
 			Payload:  payload,
 			Endpoint: "/shard/add-member/" + shardId,
 			// Only other replicas will be broadcasted to
-			Targets: FilterViews(replica.GetOtherViews(), socket.Address),
+			Targets: replica.GetOtherViews(),
 		})
-
-		// Sync replica data with shard
-		go replica.initKV()
-
-		return c.JSON(http.StatusOK, ResponseNC{Result: "node added to shard"})
 	}
+	return c.JSON(http.StatusOK, ResponseNC{Result: "node added to shard"})
 
 }
 
