@@ -64,7 +64,7 @@ func (r *Replica) ForwardRemoteKey(next echo.HandlerFunc) echo.HandlerFunc {
 			p := payload
 			res, err = SendRequest(HttpRequest{
 				method:   method,
-				endpoint: "/kv/" + key,
+				endpoint: "/kvs/" + key,
 				addr:     n,
 				payload:  p,
 			})
