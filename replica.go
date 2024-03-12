@@ -82,9 +82,9 @@ func (r *Replica) initKV() {
 }
 
 func (r *Replica) initReplica() {
-	// Skip registration if the shardCount is 0 indicating that
-	// the replica has stopped and came back up
-	if r.shardCount == 0 {
+	// Skip registration if the shardCount is not 0 indicating that
+	// the replica has come up for the first time
+	if r.shardCount != 0 {
 		return
 	}
 	zap.L().Info("Initializing replica", zap.String("addr", r.addr))
@@ -107,8 +107,7 @@ func (r *Replica) initReplica() {
 			Targets: r.GetOtherViews(),
 		})
 	}
-	// Unnecessary to initialize KV yet, because we don't know what shard we are part of.
-	// r.initKV()
+	// Don't initialize KV yet, because we don't know what shard we are part of.
 }
 
 func initShards(shardCount int, view []string) (map[string][]string, error) {
