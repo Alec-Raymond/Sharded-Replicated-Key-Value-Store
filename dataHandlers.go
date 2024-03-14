@@ -77,15 +77,14 @@ func (r *Replica) handlePut(c echo.Context) error {
 			Targets:  FilterViews(r.shards[r.shardId], r.addr),
 		})
 
-		// Broadcast the updated vc to all other replicas outside of the current shard
-
+		// Broadcast the metadata to views not in the current shard
 		r.BufferAtSender(&BufferAtSenderRequest{
 			Method:   http.MethodPut,
 			Endpoint: "/cm",
-			Targets:  FilterViews(r.GetOtherViews(), r.shards[r.shardId]...),
 			Payload: CMRequest{
 				CausalMetadata: copiedClock,
 			},
+			Targets: FilterViews(r.View, r.shards[r.shardId]...),
 		})
 	}
 
