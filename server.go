@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -45,11 +46,13 @@ func (r *Replica) ForwardRemoteKey(next echo.HandlerFunc) echo.HandlerFunc {
 		// Set the payload to the request body if it is a PUT request
 		if method == http.MethodPut {
 			request := new(Request)
-			if err := c.Bind(request); err != nil || request == nil {
+			if err := c.Bind(request); err != nil {
 				return c.JSON(http.StatusBadRequest, ErrResponse{Error: "invalid data format"})
 			}
+			// fmt.Println("Request Causal Metadata:", request.CausalMetadata)
+			remoteHost := strings.Split(c.Request().RemoteAddr, ":")[0]
+			request.CausalMetadata = GetClientVectorClock(request, remoteHost)
 			payload = request
-
 		}
 		zap.L().Info("remote key, forwarding request to", zap.String("shardId", shardId))
 		res, err := BroadcastFirst(&BroadcastFirstRequest{
