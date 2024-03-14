@@ -77,6 +77,8 @@ func (vc *VectorClock) Accept(clientClock *VectorClock, isRead bool, vcLock *syn
 		vc.Clocks[clientClock.Self] = vc.Clocks[clientClock.Self] + 1
 
 		clientClock.Clocks[clientClock.Self] = clientClock.Clocks[clientClock.Self] + 1
+
+		return
 	}
 
 	maps.Copy(clientClock.Clocks, vc.Clocks)
