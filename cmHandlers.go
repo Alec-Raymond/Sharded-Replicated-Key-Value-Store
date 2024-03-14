@@ -21,6 +21,10 @@ type CMResponse struct {
 func (r *Replica) handlePutCM(c echo.Context) error {
 	request := new(CMRequest)
 
+	if err := c.Bind(request); err != nil || request != nil {
+		return c.JSON(http.StatusBadRequest, ErrResponse{Error: "must provide causal metadata"})
+	}
+
 	if !r.vc.IsReadyFor(request.CausalMetadata, false, &r.vcLock) {
 		return c.JSON(http.StatusServiceUnavailable,
 			ErrResponse{Error: "Causal Dependencies not satisfied; try again later"},
