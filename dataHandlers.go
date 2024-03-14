@@ -68,31 +68,27 @@ func (r *Replica) handlePut(c echo.Context) error {
 			CausalMetadata: copiedClock,
 			IsBroadcast:    true,
 		}
-
-		go r.BufferAtSender(&BufferAtSenderRequest{
+		r.BufferAtSender(&BufferAtSenderRequest{
 			Method:   http.MethodPut,
 			Payload:  broadcastPayload,
 			Endpoint: "/kvs/" + key,
 			Targets:  FilterViews(r.shards[r.shardId], r.addr),
+		})
+
+		// Broadcast the metadata to views not in the current shard
+		r.BufferAtSender(&BufferAtSenderRequest{
+			Method:   http.MethodPut,
+			Endpoint: "/cm",
+			Payload: CMRequest{
+				CausalMetadata: copiedClock,
+			},
+			Targets: FilterViews(r.View, r.shards[r.shardId]...),
 		})
 	}
 
 	// Update both vector clocks
 	r.vc.Accept(&clientClock, false, &r.vcLock)
 	_, ok := r.kv[key]
-
-	// Broadcast the updated vc to all other replicas outside of the current shard
-	copiedClock := CloneVC(*r.vc)
-	broadcastPayload := CMRequest{
-		CausalMetadata: copiedClock,
-	}
-
-	go r.BufferAtSender(&BufferAtSenderRequest{
-		Method:   http.MethodPut,
-		Endpoint: "/cm",
-		Targets:  FilterViews(r.GetOtherViews(), r.shards[r.shardId]...),
-		Payload:  broadcastPayload,
-	})
 
 	if !ok {
 		r.kv[key] = request.Value

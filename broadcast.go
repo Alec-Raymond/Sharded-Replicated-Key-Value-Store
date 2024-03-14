@@ -42,7 +42,7 @@ func Broadcast(br *BroadcastRequest) []FailingRequest {
 				address: addr,
 				err:     errors.New("failed request"),
 			})
-			zap.L().Warn("Request failed to", zap.String("addr", addr), zap.String("method", method))
+			zap.L().Warn("Request failed to", zap.String("addr", addr), zap.String("method", method), zap.Error(err))
 			continue
 
 		}

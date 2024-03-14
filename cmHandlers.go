@@ -21,7 +21,7 @@ type CMResponse struct {
 func (r *Replica) handlePutCM(c echo.Context) error {
 	request := new(CMRequest)
 
-	if err := c.Bind(request); err != nil || request != nil {
+	if err := c.Bind(request); err != nil || request == nil {
 		return c.JSON(http.StatusBadRequest, ErrResponse{Error: "must provide causal metadata"})
 	}
 
