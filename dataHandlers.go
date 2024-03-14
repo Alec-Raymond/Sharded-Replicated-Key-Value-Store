@@ -51,6 +51,7 @@ func (r *Replica) handlePut(c echo.Context) error {
 	zap.L().Debug("In PUT /kvs/:key", zap.String("remoteHost", remoteHost), zap.String("realIp", c.RealIP()))
 
 	clientClock := GetClientVectorClock(request, remoteHost)
+	zap.L().Info("Client Clock is (initially):", zap.Any("clientClock", clientClock.Clocks), zap.String("clientClockSelf", clientClock.Self))
 
 	// Check if all causal dependencies are satisfied
 	if !r.vc.IsReadyFor(clientClock, false, &r.vcLock) {
@@ -69,30 +70,29 @@ func (r *Replica) handlePut(c echo.Context) error {
 			IsBroadcast:    true,
 		}
 
-		go r.BufferAtSender(&BufferAtSenderRequest{
+		r.BufferAtSender(&BufferAtSenderRequest{
 			Method:   http.MethodPut,
 			Payload:  broadcastPayload,
 			Endpoint: "/kvs/" + key,
 			Targets:  FilterViews(r.shards[r.shardId], r.addr),
 		})
+
+		// Broadcast the updated vc to all other replicas outside of the current shard
+
+		r.BufferAtSender(&BufferAtSenderRequest{
+			Method:   http.MethodPut,
+			Endpoint: "/cm",
+			Targets:  FilterViews(r.GetOtherViews(), r.shards[r.shardId]...),
+			Payload: CMRequest{
+				CausalMetadata: copiedClock,
+			},
+		})
 	}
 
 	// Update both vector clocks
 	r.vc.Accept(&clientClock, false, &r.vcLock)
+	zap.L().Info("After accepting PUT,", zap.Any("serverVC", r.vc.Clocks), zap.String("serverClockSelf", r.vc.Self), zap.Any("clientVC", clientClock.Clocks), zap.Any("clientClockSelf", clientClock.Self))
 	_, ok := r.kv[key]
-
-	// Broadcast the updated vc to all other replicas outside of the current shard
-	copiedClock := CloneVC(*r.vc)
-	broadcastPayload := CMRequest{
-		CausalMetadata: copiedClock,
-	}
-
-	go r.BufferAtSender(&BufferAtSenderRequest{
-		Method:   http.MethodPut,
-		Endpoint: "/cm",
-		Targets:  FilterViews(r.GetOtherViews(), r.shards[r.shardId]...),
-		Payload:  broadcastPayload,
-	})
 
 	if !ok {
 		r.kv[key] = request.Value
@@ -178,10 +178,20 @@ func (r *Replica) handleDelete(c echo.Context) error {
 			IsBroadcast:    true,
 		}
 
-		go r.BufferAtSender(&BufferAtSenderRequest{
+		r.BufferAtSender(&BufferAtSenderRequest{
 			Method:   http.MethodDelete,
 			Payload:  broadcastPayload,
 			Endpoint: "/kvs/" + key,
+			Targets:  FilterViews(r.shards[r.shardId], r.addr),
+		})
+
+		r.BufferAtSender(&BufferAtSenderRequest{
+			Method: http.MethodPut,
+			Payload: CMRequest{
+				CausalMetadata: copiedClock,
+			},
+			Endpoint: "/cm",
+			Targets:  FilterViews(r.View, r.shards[r.shardId]...),
 		})
 	}
 
