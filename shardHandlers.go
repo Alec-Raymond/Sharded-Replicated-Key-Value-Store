@@ -97,7 +97,8 @@ func (r *Replica) handleReshard(c echo.Context) error {
 	newKv := make(map[string]map[string]any)
 	for k, v := range allKvs {
 		// Get KV for the relevant shard
-		kv, ok := newKv[findShard(k, newShards)]
+		assignedShard := findShard(k, newShards)
+		kv, ok := newKv[assignedShard]
 		if !ok {
 			kv = make(map[string]any)
 		}
@@ -105,7 +106,7 @@ func (r *Replica) handleReshard(c echo.Context) error {
 		// Add this key value pair to it
 		// zap.L().Info("Setting key in newKv", zap.Any("kv", kv))
 		kv[k] = v
-		newKv[findShard(k, newShards)] = kv
+		newKv[assignedShard] = kv
 	}
 
 	for shard := range newKv {
