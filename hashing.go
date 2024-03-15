@@ -1,16 +1,17 @@
 package main
 
 import (
-	"crypto/md5"
+	"crypto/sha1"
+	"fmt"
 	"slices"
 )
 
 func hash(key string) int {
 	byteKey := ([]byte)(key)
 	// The hashed checksum is 16 bytes.
-	hashedKey := md5.Sum(byteKey)
+	hashedKey := sha1.Sum(byteKey)
 	// To support a capacity (potential number of shards) of 256, we want 8 bits (1 byte).
-	return (int)(hashedKey[15])
+	return (int)(hashedKey[19])
 }
 
 func findShard(key string, shards map[string][]string) string {
@@ -18,8 +19,8 @@ func findShard(key string, shards map[string][]string) string {
 	for s := range shards {
 		shardNames = append(shardNames, s)
 	}
-	var left, right, mid int
-	right = len(shardNames) - 1
+	// var left, right, mid int
+	// right = len(shardNames) - 1
 
 	keyHash := hash(key)
 
@@ -32,21 +33,22 @@ func findShard(key string, shards map[string][]string) string {
 		return 1
 	})
 
-	for left < right {
-		mid = left + (right-left)/2
+	var shardHashes []int
 
-		if keyHash > hash(shardNames[mid]) {
-			left = mid + 1
-		} else if keyHash < hash(shardNames[mid]) {
-			right = mid - 1
-		} else {
-			return shardNames[mid]
+	for _, shardName := range shardNames {
+		shardHashes = append(shardHashes, hash(shardName))
+	}
+
+	// zap.L().Debug("Shard Name Hashes:", zap.Any("shardHashes", shardHashes))
+	fmt.Println("Shard Name Hashes:", shardHashes)
+
+	for _, shardName := range shardNames {
+		if hash(shardName) > keyHash {
+			fmt.Printf("key %s:%d went to shard %d\n", key, keyHash, hash(shardName))
+			return shardName
 		}
 	}
 
-	if left < len(shardNames)-1 {
-		return shardNames[left+1]
-	}
-
 	return shardNames[0]
+
 }
