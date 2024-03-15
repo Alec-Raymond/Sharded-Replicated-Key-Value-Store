@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/sha1"
-	"fmt"
 	"slices"
 )
 
@@ -40,11 +39,9 @@ func findShard(key string, shards map[string][]string) string {
 	}
 
 	// zap.L().Debug("Shard Name Hashes:", zap.Any("shardHashes", shardHashes))
-	fmt.Println("Shard Name Hashes:", shardHashes)
 
 	for _, shardName := range shardNames {
 		if hash(shardName) > keyHash {
-			fmt.Printf("key %s:%d went to shard %d\n", key, keyHash, hash(shardName))
 			return shardName
 		}
 	}

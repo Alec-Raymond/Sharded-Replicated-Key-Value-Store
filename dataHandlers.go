@@ -48,10 +48,10 @@ func (r *Replica) handlePut(c echo.Context) error {
 	// Read client's causal metadata.
 	remoteHost := strings.Split(c.Request().RemoteAddr, ":")[0]
 
-	zap.L().Debug("In PUT /kvs/:key", zap.String("remoteHost", remoteHost), zap.String("realIp", c.RealIP()))
+	// zap.L().Debug("In PUT /kvs/:key", zap.String("remoteHost", remoteHost), zap.String("realIp", c.RealIP()))
 
 	clientClock := GetClientVectorClock(request, remoteHost)
-	zap.L().Info("Client Clock is (initially):", zap.Any("clientClock", clientClock.Clocks), zap.String("clientClockSelf", clientClock.Self))
+	// zap.L().Info("Client Clock is (initially):", zap.Any("clientClock", clientClock.Clocks), zap.String("clientClockSelf", clientClock.Self))
 
 	// Check if all causal dependencies are satisfied
 	if !r.vc.IsReadyFor(clientClock, false, &r.vcLock) {
@@ -96,7 +96,7 @@ func (r *Replica) handlePut(c echo.Context) error {
 	if !ok {
 		r.kv[key] = request.Value
 		// Still need to return the updated causal metadata
-		zap.L().Debug("Created kv", zap.String("key", key), zap.Any("value", r.kv[key]), zap.String("producer IP", c.RealIP()))
+		// zap.L().Debug("Created kv", zap.String("key", key), zap.Any("value", r.kv[key]), zap.String("producer IP", c.RealIP()))
 		return c.JSON(http.StatusCreated, Response{Result: "created", CausalMetadata: clientClock})
 	}
 
@@ -131,7 +131,7 @@ func (r *Replica) handleGet(c echo.Context) error {
 
 	r.vc.Accept(&clientClock, true, &r.vcLock)
 
-	zap.L().Info("In GET /kvs/:key", zap.String("key", key), zap.Any("value", val), zap.String("ip", c.RealIP()))
+	// zap.L().Info("In GET /kvs/:key", zap.String("key", key), zap.Any("value", val), zap.String("ip", c.RealIP()))
 
 	return c.JSON(http.StatusOK, GetResponse{
 		Response: Response{
@@ -199,7 +199,7 @@ func (r *Replica) handleDelete(c echo.Context) error {
 
 	delete(r.kv, key)
 
-	zap.L().Info("In DELETE /kvs/:key", zap.String("key", key), zap.String("ip", c.RealIP()))
+	// zap.L().Info("In DELETE /kvs/:key", zap.String("key", key), zap.String("ip", c.RealIP()))
 
 	return c.JSON(http.StatusOK, Response{Result: "deleted", CausalMetadata: clientClock, ShardId: r.shardId})
 }

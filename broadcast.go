@@ -61,7 +61,6 @@ func Broadcast(br *BroadcastRequest) []FailingRequest {
 // BroadcastFirst sends requests to the list of target nodes until one
 // responds successfully. If one fails to respond it sends a delete request
 func BroadcastFirst(br *BroadcastFirstRequest) (*http.Response, error) {
-	zap.L().Info("In BroadcastFirst")
 	var (
 		res *http.Response
 		err error
