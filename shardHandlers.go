@@ -40,6 +40,7 @@ func (r *Replica) handleReshard(c echo.Context) error {
 	type ReshardRequest struct {
 		ShardCount int `json:"shard-count"`
 	}
+	fmt.Println("In handleReshard")
 	rr := new(ReshardRequest)
 	if err := c.Bind(rr); err != nil || rr == nil || rr.ShardCount == 0 {
 		return c.JSON(http.StatusBadRequest,
@@ -76,22 +77,29 @@ func (r *Replica) handleReshard(c echo.Context) error {
 		}
 		maps.Copy(allKvs, data.Kv)
 	}
+	zap.L().Debug("Agglomerated KV:", zap.Int("len of allKvs", len(allKvs)))
 	// Move nodes to new shard
 	newShards, err := initShards(rr.ShardCount, r.View)
 	if err != nil {
 		zap.L().Error("Failed to init shard names", zap.Error(err))
 		return c.JSON(http.StatusBadRequest, ErrResponse{Error: "bad reshard request"})
 	}
+
 	// Update nodes with new keys and new shardState
 	newKv := make(map[string]map[string]any)
 	for k, v := range allKvs {
-		// Get KV for the relevant shard
-		kv := newKv[findShard(k, newShards)]
-
 		// Add this key value pair to it
-		kv[k] = v
-		newKv[findShard(k, newShards)] = kv
+		if newKv[findShard(k, newShards)] == nil {
+			newKv[findShard(k, newShards)] = make(map[string]any)
+		}
+
+		newKv[findShard(k, newShards)][k] = v
 	}
+
+	for shard := range newKv {
+		zap.L().Debug(shard, zap.Int("len of keys allocated:", len(newKv[shard])))
+	}
+
 	// Broadcast this state update to each shard
 	// Including self
 	for sh, nodes := range newShards {
