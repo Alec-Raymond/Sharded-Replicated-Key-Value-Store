@@ -1,5 +1,23 @@
 package main
 
+import (
+	"net/http"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func Test_SendRequest_GET(t *testing.T) {
+	_, err := SendRequest(HttpRequest{
+		method:   http.MethodGet,
+		endpoint: "/",
+		addr:     "www.google.com",
+	})
+
+	assert.NoError(t, err)
+
+}
+
 /*
 import (
 	"net/http"
@@ -9,6 +27,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 )
+
 
 // Simple smoke test to ensure no concurrency issues
 func TestLongPollSmoke(t *testing.T) {

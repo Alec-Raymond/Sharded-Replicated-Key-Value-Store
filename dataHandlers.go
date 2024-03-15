@@ -112,6 +112,7 @@ func (r *Replica) handleGet(c echo.Context) error {
 
 	// Check if all causal dependencies are satisfied
 	if !r.vc.IsReadyFor(clientClock, true, &r.vcLock) {
+		zap.L().Warn("This should not happen. Causal dependencies are not satisfied", zap.Any("cm", *r.vc), zap.Any("clientClock", clientClock))
 		return c.JSON(
 			http.StatusServiceUnavailable,
 			ErrResponse{Error: "Causal Dependencies not satisfied; try again later"},

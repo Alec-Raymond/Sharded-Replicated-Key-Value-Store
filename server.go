@@ -35,6 +35,7 @@ func (r *Replica) ForwardRemoteKey(next echo.HandlerFunc) echo.HandlerFunc {
 			zap.L().Info("Local key, no need to forward")
 			return next(c)
 		}
+
 		// Otherwise begin forwarding
 		nodes, ok := r.shards[shardId]
 		if !ok {
@@ -42,27 +43,23 @@ func (r *Replica) ForwardRemoteKey(next echo.HandlerFunc) echo.HandlerFunc {
 			return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "No nodes in shard"})
 		}
 		method := c.Request().Method
-		var payload any = make(map[string]any)
-		// Set the payload to the request body if it is a PUT request
-		if method == http.MethodPut {
-			request := new(Request)
-			if err := c.Bind(request); err != nil {
-				return c.JSON(http.StatusBadRequest, ErrResponse{Error: "invalid data format"})
-			}
-			// fmt.Println("Request Causal Metadata:", request.CausalMetadata)
-			remoteHost := strings.Split(c.Request().RemoteAddr, ":")[0]
-			request.CausalMetadata = GetClientVectorClock(request, remoteHost)
-			payload = request
+		br := BroadcastRequest{
+			Targets:  nodes,
+			Method:   method,
+			Endpoint: "/kvs/" + key,
 		}
-		zap.L().Info("remote key, forwarding request to", zap.String("shardId", shardId))
+		// Update causal metadata and send it downstream
+		request := new(Request)
+		if err := c.Bind(request); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrResponse{Error: "invalid data format"})
+		}
+		remoteHost := strings.Split(c.Request().RemoteAddr, ":")[0]
+		request.CausalMetadata = GetClientVectorClock(request, remoteHost)
+		br.Payload = request
+
+		zap.L().Info("Remote key, forwarding request to", zap.String("shardId", shardId), zap.Strings("nodes", nodes))
 		res, err := BroadcastFirst(&BroadcastFirstRequest{
-			BroadcastRequest: BroadcastRequest{
-				Targets:  nodes,
-				Method:   method,
-				Payload:  payload,
-				Endpoint: "/kvs/" + key,
-			},
-			srcAddr: r.addr,
+			BroadcastRequest: br, srcAddr: r.addr,
 		})
 		// Return
 		if err != nil {
@@ -81,15 +78,11 @@ func main() {
 	zap.ReplaceGlobals(logger)
 
 	e := echo.New()
+	server := NewReplica()
 
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: "method=${method}, remote_ip=${remote_ip} uri=${uri}, status=${status}\n",
-	}))
-
-	server := NewReplica()
-
-	e.Use(server.ReplicaStatus)
-	e.Use(middleware.Recover())
+	}), server.ReplicaStatus, middleware.Recover())
 
 	kv := e.Group("/kvs/:key", server.ForwardRemoteKey)
 	kv.PUT("", server.handlePut)

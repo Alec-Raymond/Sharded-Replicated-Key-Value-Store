@@ -104,11 +104,13 @@ func SendRequest(r HttpRequest) (*http.Response, error) {
 		zap.L().Error("Couldn't marshal to JSON", zap.Error(err))
 		return nil, err
 	}
+
 	req, err := http.NewRequest(r.method, requestURL.String(), bytes.NewBuffer(json))
 	if err != nil {
 		zap.L().Error("Couldn't construct request", zap.Error(err))
 		return nil, err
 	}
+
 	req.Header.Set("Content-Type", "application/json")
 	client := http.Client{
 		Timeout: 200 * time.Millisecond,
