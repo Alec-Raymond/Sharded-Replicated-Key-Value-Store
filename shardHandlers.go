@@ -68,14 +68,23 @@ func (r *Replica) handleReshard(c echo.Context) error {
 	// Aggregate all the key-value pairs
 	allKvs := make(map[string]any)
 	for shardId, nodes := range r.shards {
-		data, err := getKvData(nodes[0])
-		if err != nil {
+		res, err := BroadcastFirst(&BroadcastFirstRequest{
+			BroadcastRequest: BroadcastRequest{
+				Method:   http.MethodGet,
+				Endpoint: "/data",
+				Targets:  nodes,
+			},
+		})
+		if err != nil || res == nil {
 			zap.L().Error("Failed to fetch data for", zap.String("shardId", shardId), zap.Error(err))
-			// TODO: maybe delete this replica from the view if its unresponsive
 			return c.JSON(http.StatusInternalServerError, ErrResponse{Error: "couldn't fetch data"})
 		}
+		body, _ := io.ReadAll(res.Body)
+		var data DataTransfer
+		json.Unmarshal(body, &data)
 		maps.Copy(allKvs, data.Kv)
 	}
+	zap.L().Info("Copied all KVS", zap.Int("num-keys", len(allKvs)))
 	// Move nodes to new shard
 	newShards, err := initShards(rr.ShardCount, r.View)
 	if err != nil {
@@ -86,9 +95,13 @@ func (r *Replica) handleReshard(c echo.Context) error {
 	newKv := make(map[string]map[string]any)
 	for k, v := range allKvs {
 		// Get KV for the relevant shard
-		kv := newKv[findShard(k, newShards)]
+		kv, ok := newKv[findShard(k, newShards)]
+		if !ok {
+			kv = make(map[string]any)
+		}
 
 		// Add this key value pair to it
+		// zap.L().Info("Setting key in newKv", zap.Any("kv", kv))
 		kv[k] = v
 		newKv[findShard(k, newShards)] = kv
 	}

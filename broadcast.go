@@ -21,7 +21,7 @@ type BroadcastFirstRequest struct {
 
 // Broadcast sends the requests to all the nodes in br.Targets
 func Broadcast(br *BroadcastRequest) []FailingRequest {
-	zap.L().Info("In Broadcast", zap.Any("payload", *br))
+	// zap.L().Info("In Broadcast", zap.Any("payload", *br))
 	var failingReqs []FailingRequest
 
 	urls := br.Targets
