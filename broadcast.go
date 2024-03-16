@@ -76,7 +76,7 @@ func BroadcastFirst(br *BroadcastFirstRequest) (*http.Response, error) {
 		if err == nil {
 			break
 		}
-		zap.L().Warn("couldn't send read request", zap.String("remote-node", n))
+		// zap.L().Warn("couldn't send read request", zap.String("remote-node", n))
 		zap.L().Info("deleting node", zap.String("delete-node", n))
 		sendViewRequest(http.MethodDelete, br.srcAddr, n, "")
 	}

@@ -17,7 +17,7 @@ func (r *Replica) ReplicaStatus(next echo.HandlerFunc) echo.HandlerFunc {
 		}
 		r.vcLock.Lock()
 		defer r.vcLock.Unlock()
-		zap.L().Info("In Status" /*zap.Any("kv", r.kv), zap.Strings("views", r.View),*/, zap.Any("shards", r.shards))
+		zap.L().Info("In Status", zap.Any("kv", r.kv), zap.Strings("views", r.View), zap.Any("ServerVC:", r.vc.Clocks), zap.String("ServerSelf:", r.vc.Self), zap.Any("shards", r.shards))
 		return nil
 	}
 }
@@ -83,7 +83,7 @@ func main() {
 
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: "method=${method}, remote_ip=${remote_ip} uri=${uri}, status=${status}\n",
-	}), /*server.ReplicaStatus,*/ middleware.Recover())
+	}), server.ReplicaStatus, middleware.Recover())
 
 	kv := e.Group("/kvs/:key", server.ForwardRemoteKey)
 	kv.PUT("", server.handlePut)

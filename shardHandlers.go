@@ -68,7 +68,13 @@ func (r *Replica) handleReshard(c echo.Context) error {
 	zap.L().Info("Resharding", zap.String("leader-ip", r.addr))
 	// Aggregate all the key-value pairs
 	allKvs := make(map[string]any)
+	maps.Copy(allKvs, r.kv)
 	for shardId, nodes := range r.shards {
+		// Skip current shard
+		if shardId == r.shardId {
+			continue
+		}
+		zap.L().Info("Getting keys from shard", zap.String("shard", shardId), zap.Strings("nodes", nodes))
 		res, err := BroadcastFirst(&BroadcastFirstRequest{
 			BroadcastRequest: BroadcastRequest{
 				Method:   http.MethodGet,
@@ -83,6 +89,7 @@ func (r *Replica) handleReshard(c echo.Context) error {
 		body, _ := io.ReadAll(res.Body)
 		var data DataTransfer
 		json.Unmarshal(body, &data)
+		zap.L().Info("Got _ keys from _ shard:", zap.Int("key-count", len(data.Kv)), zap.String("shard:", shardId))
 		maps.Copy(allKvs, data.Kv)
 	}
 	zap.L().Info("Copied all KVS", zap.Int("num-keys", len(allKvs)))
@@ -119,7 +126,7 @@ func (r *Replica) handleReshard(c echo.Context) error {
 	// Broadcast this state update to each shard
 	// Including self
 	for sh, nodes := range newShards {
-		go r.BufferAtSender(&BufferAtSenderRequest{
+		r.BufferAtSender(&BufferAtSenderRequest{
 			Method: http.MethodPut,
 			Payload: ReshardUpdate{
 				ShardCount: rr.ShardCount,
@@ -141,6 +148,7 @@ func (replica *Replica) handleUpdateShard(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, ErrResponse{Error: "missing KV, Shards, or node ID"})
 	}
 	replica.kv = ru.KV
+	zap.L().Debug("Key-Count:", zap.Int("key-count", len(replica.kv)))
 	replica.shardId = ru.ShardId
 	replica.shardCount = ru.ShardCount
 	replica.shards = ru.Shards
@@ -192,7 +200,7 @@ func (replica *Replica) handleShardMemberPut(c echo.Context) error {
 			Address:     socket.Address,
 			IsBroadcast: true,
 		}
-		go replica.BufferAtSender(&BufferAtSenderRequest{
+		replica.BufferAtSender(&BufferAtSenderRequest{
 			Method:   http.MethodPut,
 			Payload:  payload,
 			Endpoint: "/shard/add-member/" + shardId,

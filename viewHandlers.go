@@ -78,7 +78,7 @@ func (replica *Replica) handleViewPut(c echo.Context) error {
 		"socket-address": socket.Address,
 	}
 
-	go replica.BufferAtSender(&BufferAtSenderRequest{
+	replica.BufferAtSender(&BufferAtSenderRequest{
 		Method:   http.MethodPut,
 		Payload:  payload,
 		Endpoint: "/view",
@@ -108,7 +108,7 @@ func (replica *Replica) BufferAtSender(pr *BufferAtSenderRequest) error {
 	defer cancel()
 
 	for {
-		zap.L().Info("Sending requests to the following replicas", zap.Strings("conns", conns))
+		zap.L().Info("Sending requests to the following replicas", zap.Strings("conns", conns), zap.String("method", pr.Method), zap.String("endpoint", pr.Endpoint))
 		select {
 		case <-ctx.Done():
 			zap.L().Error("BufferAtSender timed out")
@@ -170,7 +170,7 @@ func (replica *Replica) handleViewDelete(c echo.Context) error {
 				"socket-address": socket.Address,
 				"is-broadcast":   true,
 			}
-			go replica.BufferAtSender(&BufferAtSenderRequest{
+			replica.BufferAtSender(&BufferAtSenderRequest{
 				Method:   http.MethodDelete,
 				Payload:  payload,
 				Endpoint: "/view",

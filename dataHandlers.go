@@ -205,5 +205,6 @@ func (r *Replica) handleDelete(c echo.Context) error {
 }
 
 func (r *Replica) handleDataTransfer(c echo.Context) error {
+	zap.L().Info("Replica "+r.addr+" has ", zap.Int("# keys", len(r.kv)))
 	return c.JSON(http.StatusOK, DataTransfer{Kv: r.kv, Vc: *r.vc})
 }
