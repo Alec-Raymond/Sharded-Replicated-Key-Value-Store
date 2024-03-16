@@ -41,8 +41,18 @@ Giridhar discussed causal metadata with Professor Lindsey Kuper. Furkan used Shu
 - Worked on Views Implementation
 - Worked on registering a new view via /PUT to other replicas in the network.
 - Worked on Heartbeat Down Detection (Deprecated)
+- Worked on CRUD operations for shards
+- Debugged conventional hashing
 
 # Design Decisions
+
+## Sharding
+
+To decide which key-value pairs belong in which shard, we partition by the hash of the key. To accomplish this, we use the sha1 hash function, and have a function findShard() which can take a key-value pair and and map it to a shard by comparing the hash of key with the hash of the shard name. When a replica is added to a shard, it syncs its key-value store and causal metadata with the most updated replica within the shard. 
+
+## Resharding
+
+After confirming that there are at least two replicas for the new shards, we copy all of the key value data from each replica. Then, each key-value pair is sorted using the findShard() function, so that each shard has a corresponding list of key-value pairs. Each replica is then assigned to its new shard. Finall, we broadcast to every replica within a shard its corresponding key-value data for each shard.
 
 ## Down Detection
 
