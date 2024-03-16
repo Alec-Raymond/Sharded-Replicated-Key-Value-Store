@@ -49,17 +49,34 @@ Furkan asked a clarifying question regarding forwarding remote keys, which was t
 
 ## Giridhar Vadhul
 
+## Assignment 3
+
 - Devised vector clock strategy to maintain causal consistency
 - Implemented Vector Clock Struct + Operations and Unit-Tested these.
 - Integrated Vector Clock operations with existing Key-Value Operation Handlers (from Assignment 2).
 - Devised and helped implement procedure for selecting the most up-to-date replica to copy data from (as a new replica) and implemented a corresponding handler to send all data to a new replica.
 - Refactored View Handlers to use a centralized Broadcast routine.
 
+## Assignment 4
+
+- Implemented Consistent Hashing using SHA-1 (Hashing + Search over Shards to identify the right one for each key). 
+- Later, implemented naive hashing instead due to issues with uneven key distribution in Consistent Hashing.
+- Modified data sync routine to sync from other replicas in your shard.
+- Reimplemented shardKeyCounter in a decentralized fashion.
+- Implemented method initShards to organize a view into shards, run by each node on initialization and run by the reshard leader during reshard.
+- Fixed issues with forwarded requests being seen as sent by the forwarder (by including the client IP in the forwarded request).
+
+
 ## Alec Raymond
 
+
+## Assignment 3
 - Worked on Views Implementation
 - Worked on registering a new view via /PUT to other replicas in the network.
 - Worked on Heartbeat Down Detection (Deprecated)
+
+## Assignment 4
+
 - Worked on CRUD operations for shards
 - Debugged conventional hashing
 
@@ -69,9 +86,11 @@ Furkan asked a clarifying question regarding forwarding remote keys, which was t
 
 To decide which key-value pairs belong in which shard, we partition by the hash of the key. To accomplish this, we use the sha1 hash function, and have a function findShard() which can take a key-value pair and and map it to a shard by comparing the hash of key with the hash of the shard name. When a replica is added to a shard, it syncs its key-value store and causal metadata with the most updated replica within the shard.
 
+We decided to switch out of consistent hashing due to an uneven key distribution and implemented naive hashing instead, which maps a key to a server by doing hash(key) % (# nodes). 
+
 ## Resharding
 
-After confirming that there are at least two replicas for each of the new shards, we copy all of the key value data from each replica into the replica that is processing the reshard request. Then, each key-value pair is mapped to a new shard using the findShard() function, so that each shard has a corresponding list of key-value pairs. Each replica is then assigned to its new shard. Finally, we broadcast to every replica within a shard its corresponding key-value data for each shard. The follower replicas update their state--kv data store and shard map--via the `handleUpdateShard()` handler for the internal /shard/update route.
+After confirming that there are at least two replicas for each of the new shards, we copy all of the key value data from each replica into the leader for the reshard. Then, replicas are partitioned in their order in the view of the leader into the new number of shards, as long as the average # of replicas partitioned per shard is at least 2. Then, each key-value pair is mapped to a new shard using the findShard() function, so that each shard has a corresponding list of key-value pairs. Each replica is then assigned to its new shard. Finally, we broadcast to every replica within a shard its corresponding key-value data for each shard. The follower replicas receive their assigned state--kv data store and shard map--via the `handleUpdateShard()` handler for the internal /shard/update route and copy it.
 
 ## Down Detection
 
