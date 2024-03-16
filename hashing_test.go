@@ -20,6 +20,8 @@ func testfindShardN(t *testing.T, shardCount int, keys int) {
 		res[findShard(fmt.Sprintf("key%d", i), shards)]++
 	}
 
+	fmt.Println("Result:", res)
+
 	equalShare := float64(keys) / float64(len(shards))
 	for _, v := range res {
 		assert.Greater(t, float64(v), equalShare*.75)

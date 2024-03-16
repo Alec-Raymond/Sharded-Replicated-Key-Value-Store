@@ -10,7 +10,7 @@ func hash(key string) int {
 	// The hashed checksum is 16 bytes.
 	hashedKey := sha1.Sum(byteKey)
 	// To support a capacity (potential number of shards) of 256, we want 8 bits (1 byte).
-	return (int)(hashedKey[19]) % 128
+	return (int)(hashedKey[15]) % 21
 }
 
 func findShard(key string, shards map[string][]string) string {

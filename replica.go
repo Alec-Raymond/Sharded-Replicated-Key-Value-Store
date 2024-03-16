@@ -149,9 +149,9 @@ func initShards(shardCount int, view []string) (map[string][]string, error) {
 
 	start = 0
 	for shardId := 0; shardId < shardCount; shardId++ {
-		shardName = fmt.Sprintf("s%d", shardId)           // s0
-		shards[shardName] = view[start : start+shardSize] // [1, 2, 3]
-		if start+2*shardSize > len(view) {                // 6 !> 6
+		shardName = fmt.Sprintf("s%d", shardId)
+		shards[shardName] = view[start : start+shardSize]
+		if start+2*shardSize > len(view) {
 			shards[shardName] = append(shards[shardName], view[start+shardSize:]...)
 		}
 		start += shardSize
