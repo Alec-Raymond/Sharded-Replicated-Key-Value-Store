@@ -6,7 +6,7 @@ Giridhar discussed causal metadata with Professor Lindsey Kuper. Furkan used Shu
 
 ## Assignment 4
 
-Furkan asked a clarifying question regarding forwarding remote keys, which was then affirmed by Yan Tong.
+Furkan asked a clarifying question regarding forwarding remote keys, which was then affirmed by Yan Tong. Giridhar also asked questions about the broadcasting of causal metadata across shards, which were answered by Yan Tong.
 
 # Citations
 
@@ -59,18 +59,17 @@ Furkan asked a clarifying question regarding forwarding remote keys, which was t
 
 ## Assignment 4
 
-- Implemented Consistent Hashing using SHA-1 (Hashing + Search over Shards to identify the right one for each key). 
+- Implemented Consistent Hashing using SHA-1 (Hashing + Search over Shards to identify the right one for each key).
 - Later, implemented naive hashing instead due to issues with uneven key distribution in Consistent Hashing.
 - Modified data sync routine to sync from other replicas in your shard.
 - Reimplemented shardKeyCounter in a decentralized fashion.
 - Implemented method initShards to organize a view into shards, run by each node on initialization and run by the reshard leader during reshard.
 - Fixed issues with forwarded requests being seen as sent by the forwarder (by including the client IP in the forwarded request).
 
-
 ## Alec Raymond
 
-
 ## Assignment 3
+
 - Worked on Views Implementation
 - Worked on registering a new view via /PUT to other replicas in the network.
 - Worked on Heartbeat Down Detection (Deprecated)
@@ -86,7 +85,7 @@ Furkan asked a clarifying question regarding forwarding remote keys, which was t
 
 To decide which key-value pairs belong in which shard, we partition by the hash of the key. To accomplish this, we use the sha1 hash function, and have a function findShard() which can take a key-value pair and and map it to a shard by comparing the hash of key with the hash of the shard name. When a replica is added to a shard, it syncs its key-value store and causal metadata with the most updated replica within the shard.
 
-We decided to switch out of consistent hashing due to an uneven key distribution and implemented naive hashing instead, which maps a key to a server by doing hash(key) % (# nodes). 
+We decided to switch out of consistent hashing due to an uneven key distribution and implemented naive hashing instead, which maps a key to a server by doing hash(key) % (# nodes).
 
 ## Resharding
 
