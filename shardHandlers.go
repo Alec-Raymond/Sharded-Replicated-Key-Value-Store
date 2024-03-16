@@ -108,10 +108,13 @@ func (r *Replica) handleReshard(c echo.Context) error {
 		kv[k] = v
 		newKv[assignedShard] = kv
 	}
-
-	for shard := range newKv {
-		zap.L().Debug(shard, zap.Int("len of keys allocated:", len(newKv[shard])))
+	totalKeys := 0
+	for sh, v := range newKv {
+		zap.L().Debug("Key count for shard", zap.String("shardId", sh), zap.Int("key-count", len(v)))
+		totalKeys += len(v)
 	}
+
+	zap.L().Debug("Total key count", zap.Int("total-keys", totalKeys))
 
 	// Broadcast this state update to each shard
 	// Including self

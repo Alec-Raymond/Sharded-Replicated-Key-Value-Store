@@ -32,7 +32,7 @@ func (r *Replica) ForwardRemoteKey(next echo.HandlerFunc) echo.HandlerFunc {
 
 		// If it belongs to the current replica then call the next function
 		if shardId == r.shardId {
-			zap.L().Info("Local key, no need to forward")
+			// zap.L().Info("Local key, no need to forward")
 			return next(c)
 		}
 
@@ -57,7 +57,7 @@ func (r *Replica) ForwardRemoteKey(next echo.HandlerFunc) echo.HandlerFunc {
 		request.CausalMetadata = GetClientVectorClock(request, remoteHost)
 		br.Payload = request
 
-		zap.L().Info("Remote key, forwarding request to", zap.String("shardId", shardId), zap.Strings("nodes", nodes))
+		// zap.L().Info("Remote key, forwarding request to", zap.String("shardId", shardId), zap.Strings("nodes", nodes))
 		res, err := BroadcastFirst(&BroadcastFirstRequest{
 			BroadcastRequest: br, srcAddr: r.addr,
 		})
@@ -83,7 +83,7 @@ func main() {
 
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: "method=${method}, remote_ip=${remote_ip} uri=${uri}, status=${status}\n",
-	}), server.ReplicaStatus, middleware.Recover())
+	}), /*server.ReplicaStatus,*/ middleware.Recover())
 
 	kv := e.Group("/kvs/:key", server.ForwardRemoteKey)
 	kv.PUT("", server.handlePut)
