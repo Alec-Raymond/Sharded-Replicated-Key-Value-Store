@@ -1,97 +1,19 @@
-# Acknowledgements
+# Sharded Replicated Key Value Store
 
-## Assignment 3
 
-Giridhar discussed causal metadata with Professor Lindsey Kuper. Furkan used Shun Kashiwa's suggestion on Zulip to implement down detection with broadcasting write operations. Besides that, we discussed the concepts of the assignment only within our group.
+## Design Decisions
 
-## Assignment 4
-
-Furkan asked a clarifying question regarding forwarding remote keys, which was then affirmed by Yan Tong. Giridhar also asked questions about the broadcasting of causal metadata across shards, which were answered by Yan Tong.
-
-# Citations
-
-- [Docker Docs for Go](https://docs.docker.com/language/golang/build-images/) for general assistance constructing the Dockerfile
-- [Echo Docs](https://echo.labstack.com/docs) for the core implementation details and questions related to the Echo HTTP Framework.
-- [Echo Middleware Explanation](https://medium.com/@rayato159/building-a-custom-middleware-in-go-echo-864acdecbe87) to implement custom logging middleware for debugging purposes.
-- [Go Standard Library Docs](https://pkg.go.dev/std) for debugging concurrency issues with channels, waitgroups, and goroutines, syntax help, and discovering essential functions in the standard library.
-- More granular Go References:
-
-  - Used [this](https://builtin.com/software-engineering-perspectives/golang-enum) article as reference to implement ComparisonResult enum for comparing VectorClocks.
-  - Used [this](https://gobyexample.com/variadic-functions) to implement helper that merges keys of two maps into a slice using variadic functions in Go.
-  - Used [this](https://gobyexample.com/mutexes) to implement locks over vector clock changes.
-  - Used [this](https://www.reddit.com/r/golang/comments/sbjgfp/remove_element_from_a_slice/) to remove elements from slices.
-  - Used [this](https://stackoverflow.com/questions/27234861/correct-way-of-getting-clients-ip-addresses-from-http-request) to identify the IP address of the sending client in order to identify them in our Vector Clock implementation.
-
-  Also consulted with [Gemini](https://gemini.google.com/app/) on the behavior of Echo's context.Bind (used with caution and cross-verified) due to a lack of easily findable documentation. In particular, this was to see if it was possible to bind to two different structs one after another (to be precise, one if the other failed) to handle a potential extra parameter. However, this approach became apparently incorrect, so it was not used. No application code was generated at any point.
-
-# Team Contributions
-
-## Furkan Ercevik
-
-## Assignment 3
-
-- Implemented write broadcasting for the key-value and data handlers synchronously with the use of arrays, by buffering at the sender, delaying for 200ms, and retrying the requests that received a 503 response with the same payload.
-- Unit-tested broadcast implementation to ensure proper functionality
-- Implemented down detection by leveraging the broadcast implementation to check which requests timed out (replica down)
-- Refactored view and key-value data handlers to consolidate logic and function as needed by the assignment specification
-- Helped to implement a procedure to select the most up to date data from existing replicas when a new replica joined the network
-
-## Assignment 4
-
-- Adjusted down detection mechanism to also check for downed replicas upon broadcasting reads i.e. during resharding
-- Implemented a naive reshard mechanism that aggregated all the kv's in the responding replica--essentially treating it as a leader--and redistributing the
-  kv's post-reshard
-- Implemented forwarding middleware that was used by the `/kvs` route to ensure that requests that mapped to remote keys were forwarded to the correct shard
-- Debugged causal metadata broadcasting inter-shard and uneven key distributions during hashing
-- Refactored duplicative code and added unit tests where necessary to reproduce uneven key distribution issues
-- Fixed issues with `/shard/add-member`
-- Integrated custom logging middleware along with `uber-zap` for structured logging
-
-## Giridhar Vadhul
-
-## Assignment 3
-
-- Devised vector clock strategy to maintain causal consistency
-- Implemented Vector Clock Struct + Operations and Unit-Tested these.
-- Integrated Vector Clock operations with existing Key-Value Operation Handlers (from Assignment 2).
-- Devised and helped implement procedure for selecting the most up-to-date replica to copy data from (as a new replica) and implemented a corresponding handler to send all data to a new replica.
-- Refactored View Handlers to use a centralized Broadcast routine.
-
-## Assignment 4
-
-- Implemented Consistent Hashing using SHA-1 (Hashing + Search over Shards to identify the right one for each key).
-- Later, implemented naive hashing instead due to issues with uneven key distribution in Consistent Hashing.
-- Modified data sync routine to sync from other replicas in your shard.
-- Reimplemented shardKeyCounter in a decentralized fashion.
-- Implemented method initShards to organize a view into shards, run by each node on initialization and run by the reshard leader during reshard.
-- Fixed issues with forwarded requests being seen as sent by the forwarder (by including the client IP in the forwarded request).
-
-## Alec Raymond
-
-## Assignment 3
-
-- Worked on Views Implementation
-- Worked on registering a new view via /PUT to other replicas in the network.
-- Worked on Heartbeat Down Detection (Deprecated)
-
-## Assignment 4
-
-- Worked on CRUD operations for shards
-- Debugged conventional hashing
-
-# Design Decisions
-
-## Sharding
+### Sharding
 
 To decide which key-value pairs belong in which shard, we partition by the hash of the key. To accomplish this, we use the sha1 hash function, and have a function findShard() which can take a key-value pair and and map it to a shard by comparing the hash of key with the hash of the shard name. When a replica is added to a shard, it syncs its key-value store and causal metadata with the most updated replica within the shard.
 
 We decided to switch out of consistent hashing due to an uneven key distribution and implemented naive hashing instead, which maps a key to a server by doing hash(key) % (# nodes).
 
-## Resharding
+### Resharding
 
 After confirming that there are at least two replicas for each of the new shards, we copy all of the key value data from each replica into the leader for the reshard. Then, replicas are partitioned in their order in the view of the leader into the new number of shards, as long as the average # of replicas partitioned per shard is at least 2. Then, each key-value pair is mapped to a new shard using the findShard() function, so that each shard has a corresponding list of key-value pairs. Each replica is then assigned to its new shard. Finally, we broadcast to every replica within a shard its corresponding key-value data for each shard. The follower replicas receive their assigned state--kv data store and shard map--via the `handleUpdateShard()` handler for the internal /shard/update route and copy it.
 
-## Down Detection
+### Down Detection
 
 We initially decided to do down detection by utilizing a heartbeat mechanism. The idea was that upon startup, the replica would start sending requests to the `/views/health` endpoint of the other replicas in its view to ensure that they were alive. If at any point a replica failed the healthcheck, it would be removed from the current replica's view and this delete request would be broadcasted to the other 'live' replicas. The replica would perform these heartbeats at an interval of ~3 seconds in a separate goroutine/thread.
 
@@ -136,3 +58,19 @@ As implemented in Data Handlers, all requests for which the replica does not hav
   needed upon receiving 503 error.
 - Do not retry requests that time out or respond with a non-503 error code
 - Delete replicas that fail to respond to the broadcast
+
+
+## Citations
+
+- [Docker Docs for Go](https://docs.docker.com/language/golang/build-images/) for general assistance constructing the Dockerfile
+- [Echo Docs](https://echo.labstack.com/docs) for the core implementation details and questions related to the Echo HTTP Framework.
+- [Echo Middleware Explanation](https://medium.com/@rayato159/building-a-custom-middleware-in-go-echo-864acdecbe87) to implement custom logging middleware for debugging purposes.
+- [Go Standard Library Docs](https://pkg.go.dev/std) for debugging concurrency issues with channels, waitgroups, and goroutines, syntax help, and discovering essential functions in the standard library.
+- More granular Go References:
+
+  - Used [this](https://builtin.com/software-engineering-perspectives/golang-enum) article as reference to implement ComparisonResult enum for comparing VectorClocks.
+  - Used [this](https://gobyexample.com/variadic-functions) to implement helper that merges keys of two maps into a slice using variadic functions in Go.
+  - Used [this](https://gobyexample.com/mutexes) to implement locks over vector clock changes.
+  - Used [this](https://www.reddit.com/r/golang/comments/sbjgfp/remove_element_from_a_slice/) to remove elements from slices.
+  - Used [this](https://stackoverflow.com/questions/27234861/correct-way-of-getting-clients-ip-addresses-from-http-request) to identify the IP address of the sending client in order to identify them in our Vector Clock implementation.
+
